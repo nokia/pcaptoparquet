@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pcaptoparquet"
+version = "0.1.20250222"
+dependencies = [
+    'dpkt',
+    'cryptography',
+    'pcap-parallel',
+    'polars'
+]
+authors = [
+  {name = "Pablo Rojo", email = "pablo.rojo@nokia.com"},
+]
+maintainers = [
+]
+description = "A package for converting pcap files to parquet format."
+readme = "README.md"
+license.file = "LICENSE"
+keywords = ["pcap", "parquet", "csv", "json"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python"
+]
+
+[project.scripts]
+pcaptoparquet = "pcaptoparquet_cli:main"
+
+[tool.setuptools]
+py-modules = ["pcaptoparquet_cli"]
+packages = ["pcaptoparquet"]
+
+[tool.tox]
+envlist = ["py311"]
+
+[tool.tox.env.py311]
+deps = ["pytest"]
+commands = [
+  ["pytest", "tests/"],
+]
+
+[tool.flake8]
+exclude =['.git', '.tox', '.venv*', 'build', 'dist', '.eggs']
+ignore = ['E203', 'W503', 'E231', 'E241']
+per-file-ignores = [
+    '__init__.py:F403, F401',
+]
+max-line-length = 88
+count = true
+
+[tool.black]
+line-length = 88
+
+[tool.isort]
+profile = "black"
+src_paths = ["pcaptoparquet", "tests"]
+
+[tool.mypy]
+ignore_missing_imports = true
+strict = true
+
+[tool.pyright]
+typeCheckingMode = "basic"

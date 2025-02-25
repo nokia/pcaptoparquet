@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# PyInstaller
+dist/
+build/
+*.spec
+*.exe
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+*.msi
+*.zip
+*.tar.gz
+*.tar.bz2
+*.whl
+*.egg-info/
+*.pyinstaller/
+*.tgz
+
+# Environment
+.env
+venv*/
+.vscode/
+.venv*/
+.coverage
+htmlcov/
+.mypy_cache/
+.pytest_cache/
+.tox/
+
+# Data
+out/
+tmp/
+
+# Other
+__OLD__/
+*/draft.*
+*/column_reference.txt
+
+
