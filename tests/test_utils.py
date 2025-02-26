@@ -8,8 +8,7 @@ import pstats
 from time import process_time
 from typing import Optional
 
-from pcaptoparquet.e2e_config import E2EConfig
-from pcaptoparquet.e2e_pcap import E2EPcap
+from pcaptoparquet import E2EConfig, E2EPcap
 
 
 def configure_dirs() -> dict[str, str]:

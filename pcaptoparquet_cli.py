@@ -45,8 +45,7 @@ import os
 
 import polars as pl
 
-from pcaptoparquet.e2e_config import E2EConfig
-from pcaptoparquet.e2e_pcap import E2EPcap
+from pcaptoparquet import E2EConfig, E2EPcap
 
 
 def init_parser() -> argparse.ArgumentParser:

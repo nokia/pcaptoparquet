@@ -4,8 +4,9 @@ Functional tests for pcap to parquet conversion
 
 import os
 
-from pcaptoparquet.e2e_config import E2EConfig
-from tests.test_utils import configure_dirs, generate_outputs
+from pcaptoparquet import E2EConfig
+
+from .test_utils import configure_dirs, generate_outputs
 
 # Test errors...
 # def test_error() -> None:

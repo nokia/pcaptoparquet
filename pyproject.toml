@@ -25,6 +25,10 @@ classifiers = [
   "Programming Language :: Python"
 ]
 
+[project.urls]
+Homepage = "https://github.com/nokia/pcaptoparquet"
+Issues = "https://github.com/nokia/pcaptoparquet/issues"
+
 [project.scripts]
 pcaptoparquet = "pcaptoparquet_cli:main"
 
