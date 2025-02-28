@@ -8,13 +8,14 @@ from pcaptoparquet import E2EConfig
 
 from .test_utils import configure_dirs, generate_outputs
 
-# Test errors...
+
+# # Test errors...
 # def test_error() -> None:
 #     """Test error cases..."""
 #     dirs = configure_dirs()
 #     ddir = os.path.join(dirs["ddir"])
 #     odir = os.path.join(dirs["odir"])
-#     input_file = os.path.join(ddir, "error.pcap.gz")
+#     input_file = os.path.join(ddir, "error.pcap")
 #     generate_outputs(input_file, E2EConfig(), "Client", odir, parallel=True)
 
 
@@ -86,6 +87,16 @@ def test_eth_802_1q_ipv4_network_2mb_pcap() -> None:
     odir = os.path.join(dirs["odir"], "00_functional", "01_encapsulations")
     input_file = os.path.join(ddir, "20_eth_802.1q_ipv4_Network_2MB.pcap.gz")
     generate_outputs(input_file, E2EConfig(), "Network", odir)
+
+
+# 01_encapsulations/99_sll_unknown.pcap
+def test_sll_unknown_pcap() -> None:
+    """Test the sll_unknown.pcap file"""
+    dirs = configure_dirs()
+    ddir = os.path.join(dirs["ddir"], "00_functional", "01_encapsulations")
+    odir = os.path.join(dirs["odir"], "00_functional", "01_encapsulations")
+    input_file = os.path.join(ddir, "99_sll_unknown.pcap.gz")
+    generate_outputs(input_file, E2EConfig(), "Client", odir)
 
 
 # 02_tunels/00_eth_802.1q_ipv4_udp_gtp_ipv4_network_5MB.pcap

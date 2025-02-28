@@ -176,14 +176,18 @@ class E2EPcap:
             if buf is None or len(buf) == 0:
                 continue
 
-            e2e_pkt = E2EPcap.process_pcap_packet(
-                num,
-                timestamp,
-                buf,
-                encapsulation,
-                E2EConfig().get_transport_port_cb(),  # default transport port callback
-                meta_values=meta_values,
-            )
+            try:
+                e2e_pkt = E2EPcap.process_pcap_packet(
+                    num,
+                    timestamp,
+                    buf,
+                    encapsulation,
+                    E2EConfig().get_transport_port_cb(),
+                    meta_values=meta_values,
+                )
+            except ValueError:
+                continue
+
             new_row = e2e_pkt.to_dict(pcap_dtypes)  # Convert to dict
 
             for key in pcap_dtypes:
@@ -223,14 +227,18 @@ class E2EPcap:
             if buf is None or len(buf) == 0:
                 continue
 
-            e2e_pkt = E2EPcap.process_pcap_packet(
-                num,
-                timestamp,
-                buf,
-                encapsulation,
-                E2EConfig().get_transport_port_cb(),  # default transport port callback
-                meta_values=meta_values,
-            )
+            try:
+                e2e_pkt = E2EPcap.process_pcap_packet(
+                    num,
+                    timestamp,
+                    buf,
+                    encapsulation,
+                    E2EConfig().get_transport_port_cb(),
+                    meta_values=meta_values,
+                )
+            except ValueError:
+                continue
+
             new_row = e2e_pkt.to_dict(pcap_dtypes)  # Convert to dict
 
             for key in pcap_dtypes:
@@ -580,14 +588,17 @@ class E2EPcap:
                     continue
 
                 if pktnum == 0 or pktnum == num:
-                    e2e_pkt = self.process_pcap_packet(
-                        num,
-                        timestamp,
-                        buf,
-                        self.encapsulation,
-                        self.transport_port_cb,
-                        meta_values=meta_values,
-                    )
+                    try:
+                        e2e_pkt = self.process_pcap_packet(
+                            num,
+                            timestamp,
+                            buf,
+                            self.encapsulation,
+                            self.transport_port_cb,
+                            meta_values=meta_values,
+                        )
+                    except ValueError:
+                        continue
 
                     # Print the packet for non parquet formats
                     if use_polars:  # Parquet or Polars
