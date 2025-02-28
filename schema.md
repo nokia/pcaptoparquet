@@ -1,6 +1,6 @@
 # Data Schema
 
-The proposed data schema prioritizes the main areas of bulk PCAP processing mentioned in the introduction, such as:
+The proposed data schema prioritizes the main areas of bulk PCAP processing, such as:
 
 - Network Performance Monitoring and Optimization
 - Troubleshooting Network Issues
