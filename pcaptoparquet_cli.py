@@ -42,6 +42,8 @@ Options:
 import argparse
 import importlib.metadata
 import os
+import sys
+from typing import Optional
 
 import polars as pl
 
@@ -152,6 +154,43 @@ def tags_to_json(json_tags: dict[str, str], tags: list[str]) -> dict[str, str]:
     return json_tags
 
 
+def get_tags_from_file(
+    tags: list[str], e2e_input: Optional[str] = None
+) -> dict[str, str]:
+    """
+    Get tags from the input file
+    """
+    if not e2e_input:
+        return tags_to_json({}, tags)
+
+    # Get the directory and name of the input file
+    (pcap_dir, pcap_name) = os.path.split(e2e_input)
+
+    return tags_to_json({"filename": pcap_name, "path": pcap_dir}, tags)
+
+
+def get_output_from_inputs(
+    e2e_format: str,
+    e2e_input: Optional[str] = None,
+    e2e_output: Optional[str] = None,
+) -> Optional[str]:
+    """
+    Get the output file from the input file
+    """
+    if not e2e_input:
+        return e2e_output
+
+    if not e2e_output:
+        # Remove the gzip, bzip2, and xz extensions
+        # and replace pcap or pcapng with the output format
+        e2e_output, ext = os.path.splitext(e2e_input)
+        if ext in [".gz", ".bz2", ".xz"]:
+            e2e_output, ext = os.path.splitext(e2e_output)
+        e2e_output = e2e_output + "." + e2e_format
+
+    return e2e_output
+
+
 def main() -> None:
     """
     Main function to convert pcap files to parquet format
@@ -160,91 +199,81 @@ def main() -> None:
 
     args = my_parser.parse_args()
 
-    e2e_output = args.output
-
     e2e_config = E2EConfig(configpath=args.config, callbackpath=args.callback)
 
-    if not args.input:
-        # Throw an error if multiprocessing is requested without input file
-        if args.multiprocessing:
-            my_parser.error("Multiprocessing requires an input file to be specified.")
+    # None or one input file
+    if not args.input or len(args.input) == 1:
 
-        json_tags = tags_to_json({}, args.tags)
+        # Check if multiprocessing is requested without input file
+        if not args.input:
+            # Standard input special case
+            if args.multiprocessing:
+                sys.exit("Multiprocessing requires an input file to be specified.")
 
-        E2EPcap(
-            json_tags,
-            args.point,
-            None,  # input file,
-            e2e_config,
-            pcapng=args.pcapng,
-            parallel=args.multiprocessing,
-        ).export(output=e2e_output, outformat=args.format)
+            e2e_input = None
+        else:
+            e2e_input = args.input[0]
+
+        try:
+            E2EPcap(
+                get_tags_from_file(args.tags, e2e_input),
+                args.point,
+                e2e_input,  # input file,
+                e2e_config,
+                pcapng=args.pcapng,
+                parallel=args.multiprocessing,
+            ).export(
+                output=get_output_from_inputs(args.format, e2e_input, args.output),
+                outformat=args.format,
+            )
+        except ValueError as err:
+            if not args.input:
+                sys.exit(f"Standard input: {err}")
+            else:
+                sys.exit(f"Input file '{e2e_input}' {err}")
 
     else:
         # Use polar dataframes for processing
         with pl.StringCache():
+
             pl_list: list[pl.DataFrame] = []
-            for e2e_input in args.input:
+
+            total_files = len(args.input)
+            for index, e2e_input in enumerate(args.input):
+                percentage = (index + 1) / total_files * 100
+                print(f"Processing [{percentage:.2f}%] {e2e_input} ")
+
                 # Check if input file exists
                 if not os.path.exists(e2e_input):
                     my_parser.error(f"Input file '{e2e_input}' not found.")
 
-                # Get the directory and name of the input file
-                (pcap_dir, pcap_name) = os.path.split(e2e_input)
-
-                json_tags = tags_to_json(
-                    {"filename": pcap_name, "path": pcap_dir}, args.tags
-                )
-
-                if not args.output:
-                    # bytes([0x1F, 0x8B, 0x08]): "gz",
-                    # bytes([0x42, 0x5A, 0x68]): "bz2",
-                    # bytes([0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00]): "xz",
-                    # Remove the gzip, bzip2, and xz extensions
-                    # and replace pcap or pcapng with the output format
-                    e2e_output, ext = os.path.splitext(e2e_input)
-                    if ext in [".gz", ".bz2", ".xz"]:
-                        e2e_output, ext = os.path.splitext(e2e_output)
-                    e2e_output = e2e_output + "." + args.format
-
-                    # Generate one output file for each input file
-                    E2EPcap(
-                        json_tags,
+                try:
+                    e2e_pcap = E2EPcap(
+                        get_tags_from_file(args.tags, e2e_input),
                         args.point,
                         e2e_input,  # input file
                         e2e_config,
                         pcapng=args.pcapng,
                         parallel=args.multiprocessing,
-                    ).export(output=e2e_output, outformat=args.format)
-                else:
-                    if len(args.input) > 1:
-                        # Collect all the polars dataframes in a list
-                        # print input file name to track progress
-                        print(f"Processing {e2e_input}")
+                    )
+
+                    if args.output:
                         pl_list.append(
-                            E2EPcap(
-                                json_tags,
-                                args.point,
-                                e2e_input,  # input file
-                                e2e_config,
-                                pcapng=args.pcapng,
-                                parallel=args.multiprocessing,
-                            ).export(
-                                output=e2e_output, outformat=args.format, return_df=True
+                            e2e_pcap.export(
+                                output=None, outformat=args.format, return_df=True
                             )
                         )
                     else:
-                        E2EPcap(
-                            json_tags,
-                            args.point,
-                            e2e_input,  # input file
-                            e2e_config,
-                            pcapng=args.pcapng,
-                            parallel=args.multiprocessing,
-                        ).export(output=e2e_output, outformat=args.format)
+                        e2e_pcap.export(
+                            output=get_output_from_inputs(args.format, e2e_input, None),
+                            outformat=args.format,
+                            return_df=False,
+                        )
+                except ValueError as err:
+                    sys.exit(f"Input file '{e2e_input}' {err}")
 
             if len(pl_list) > 0:
-                file_handle = E2EPcap.get_output_buffer(args.format, e2e_output, True)
+                file_handle = E2EPcap.get_output_buffer(args.format, args.output, True)
                 pl_df = pl.concat(pl_list)
                 E2EPcap.write_dataframe(pl_df, file_handle, args.format, True)
 

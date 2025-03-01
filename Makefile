@@ -29,6 +29,10 @@ check: venv
 	$(FLAKE8) pcaptoparquet tests pcaptoparquet_cli.py test_cli
 	$(MYPY) pcaptoparquet tests pcaptoparquet_cli.py test_cli
 
+fix: venv
+	$(BLACK) pcaptoparquet tests pcaptoparquet_cli.py test_cli
+	$(ISORT) pcaptoparquet tests pcaptoparquet_cli.py test_cli
+
 test: venv
 	$(TOX)
 
