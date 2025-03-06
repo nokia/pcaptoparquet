@@ -637,6 +637,8 @@ class E2EPacket:
         # OPTIONS:
         options = dpkt.tcp.parse_opts(transport.opts)
         for _, option in enumerate(options):
+            if option is None:
+                continue
             value = option[1]
             if option[0] == dpkt.tcp.TCP_OPT_MSS:
                 # maximum segment size
