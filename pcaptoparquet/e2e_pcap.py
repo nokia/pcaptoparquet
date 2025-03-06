@@ -83,28 +83,31 @@ class E2EPcap:
         eth = None
         outerip = None
 
-        if encapsulation == "Linux cooked capture":
-            sll = dpkt.sll.SLL(buf)
-            if isinstance(sll.data, dpkt.ethernet.Ethernet):
-                eth = sll.data
-            if isinstance(sll.data, (dpkt.ip.IP, dpkt.ip6.IP6)):
-                outerip = sll.data
-        elif encapsulation == "Ethernet":
-            eth = dpkt.ethernet.Ethernet(buf)
-        elif encapsulation == "Loopback Raw":
-            if dpkt.compat_ord(buf[4]) == 0x45:
-                # IP version 4 + header len 20 bytes
-                outerip = dpkt.ip.IP(buf[4:])
-            elif dpkt.compat_ord(buf[4]) & 0xF0 == 0x60:
-                # IP version 6
-                outerip = dpkt.ip6.IP6(buf[4:])
-        elif encapsulation == "Raw IP":
-            if dpkt.compat_ord(buf[0]) == 0x45:
-                # IP version 4 + header len 20 bytes
-                outerip = dpkt.ip.IP(buf)
-            elif dpkt.compat_ord(buf[0]) & 0xF0 == 0x60:
-                # IP version 6
-                outerip = dpkt.ip6.IP6(buf)
+        try:
+            if encapsulation == "Linux cooked capture":
+                sll = dpkt.sll.SLL(buf)
+                if isinstance(sll.data, dpkt.ethernet.Ethernet):
+                    eth = sll.data
+                if isinstance(sll.data, (dpkt.ip.IP, dpkt.ip6.IP6)):
+                    outerip = sll.data
+            elif encapsulation == "Ethernet":
+                eth = dpkt.ethernet.Ethernet(buf)
+            elif encapsulation == "Loopback Raw":
+                if dpkt.compat_ord(buf[4]) == 0x45:
+                    # IP version 4 + header len 20 bytes
+                    outerip = dpkt.ip.IP(buf[4:])
+                elif dpkt.compat_ord(buf[4]) & 0xF0 == 0x60:
+                    # IP version 6
+                    outerip = dpkt.ip6.IP6(buf[4:])
+            elif encapsulation == "Raw IP":
+                if dpkt.compat_ord(buf[0]) == 0x45:
+                    # IP version 4 + header len 20 bytes
+                    outerip = dpkt.ip.IP(buf)
+                elif dpkt.compat_ord(buf[0]) & 0xF0 == 0x60:
+                    # IP version 6
+                    outerip = dpkt.ip6.IP6(buf)
+        except Exception:  # pylint: disable=broad-except
+            pass
 
         if outerip is None and eth is None:
             raise ValueError("Unknown encapsulation type: " + str(encapsulation))

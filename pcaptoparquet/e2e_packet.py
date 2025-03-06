@@ -436,12 +436,12 @@ class E2EPacket:
                 if proto == b"\x06":
                     try:
                         transport = dpkt.tcp.TCP(esp.data)
-                    except dpkt.UnpackError:
+                    except (dpkt.UnpackError, struct.error):
                         transport = None
                 elif proto == b"\x11":
                     try:
                         transport = dpkt.udp.UDP(esp.data)
-                    except dpkt.UnpackError:
+                    except (dpkt.UnpackError, struct.error):
                         transport = None
                     # Check this code below...
                     # try:
@@ -461,13 +461,13 @@ class E2EPacket:
                     self.ip_len - getattr(udp, "ulen")
                 ) < 100:
                     transport = udp
-            except dpkt.UnpackError:
+            except (dpkt.UnpackError, struct.error):
                 transport = None
 
         if transport is None:
             try:
                 transport = dpkt.tcp.TCP(esp.data)
-            except dpkt.UnpackError:
+            except (dpkt.UnpackError, struct.error):
                 transport = None
 
         return transport
@@ -642,14 +642,14 @@ class E2EPacket:
                 # maximum segment size
                 try:
                     self.transport_mss = struct.unpack("!H", value)[0]
-                except dpkt.UnpackError:
+                except (dpkt.UnpackError, struct.error):
                     self.transport_mss = None
 
             elif option[0] == dpkt.tcp.TCP_OPT_WSCALE:
                 # window scale factor, RFC 1072
                 try:
                     self.transport_wscale = 2 ** int(struct.unpack("!B", value)[0])
-                except dpkt.UnpackError:
+                except (dpkt.UnpackError, struct.error):
                     self.transport_wscale = None
 
             elif option[0] == dpkt.tcp.TCP_OPT_SACKOK:
@@ -673,7 +673,7 @@ class E2EPacket:
                     ts = struct.unpack("!II", value)
                     self.transport_tsval = ts[0]
                     self.transport_tsecr = ts[1]
-                except dpkt.UnpackError:
+                except (dpkt.UnpackError, struct.error):
                     self.transport_tsval = None
                     self.transport_tsecr = None
 

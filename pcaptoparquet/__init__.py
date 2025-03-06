@@ -10,9 +10,22 @@ import importlib.metadata
 from .e2e_config import E2EConfig
 from .e2e_pcap import E2EPcap
 
-__version__ = importlib.metadata.version("pcaptoparquet")
-__author__ = importlib.metadata.metadata("pcaptoparquet")["Author"]
-__email__ = importlib.metadata.metadata("pcaptoparquet")["Author-email"]
+try:
+    __version__ = importlib.metadata.version("pcaptoparquet")
+except KeyError:
+    __version__ = "unknown"
+
+try:
+    __author__ = importlib.metadata.metadata("pcaptoparquet")["Author"]
+except KeyError:
+    __author__ = "unknown"
+
+try:
+    __email__ = importlib.metadata.metadata("pcaptoparquet")["Author-email"]
+except KeyError:
+    __email__ = "unknown"
+
+
 __license__ = "BSD-3-Clause"
 
 
