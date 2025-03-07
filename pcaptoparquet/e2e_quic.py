@@ -367,7 +367,10 @@ class E2EQuic:
                             payload_offset : payload_offset + self.payload_length
                         ]
                     )
-                    self.crypto_data = E2EQuic.parse_crypto_frame(payload)
+                    try:
+                        self.crypto_data = E2EQuic.parse_crypto_frame(payload)
+                    except Exception:  # pylint: disable=broad-except
+                        self.crypto_data = b""
 
                 elif self.ptype == 2:
                     self.type = "Long Header: Handshake"
@@ -504,9 +507,13 @@ def decode(packet: Any, transport: Any, app: Any) -> Optional[bytes]:
                 if quic_pkt.is_long_header:
                     # Long header
                     quic_str = str(quic_pkt)
+                    if getattr(packet, "transport_dst_port") == 443:
+                        setattr(packet, "app_request", quic_str)
+                    else:
+                        setattr(packet, "app_response", quic_str)
+
                     if quic_pkt.ptype == 0:
                         # type = "Initial"
-                        setattr(packet, "app_request", quic_str)
                         try:
                             (_, app_request, app_response, e2e_sni) = (
                                 decode_tls_handshake(
@@ -515,20 +522,16 @@ def decode(packet: Any, transport: Any, app: Any) -> Optional[bytes]:
                                     getattr(packet, "app_response"),
                                 )
                             )
-                            setattr(packet, "app_session", quic_pkt.dcid.hex())
+                            setattr(packet, "e2e_sni", e2e_sni)
                             setattr(packet, "app_request", app_request)
                             setattr(packet, "app_response", app_response)
-                            setattr(packet, "e2e_sni", e2e_sni)
-                        except dpkt.ssl.SSL3Exception:
-                            quic = None
+                        except Exception:  # pylint: disable=broad-except
+                            setattr(packet, "e2e_sni", None)
+
+                        setattr(packet, "app_session", quic_pkt.dcid.hex())
 
                     # elif ptype == 2:
                     #  TODO: "Handshake" implementation
-                    else:
-                        if getattr(packet, "transport_dst_port") == 443:
-                            setattr(packet, "app_request", quic_str)
-                        else:
-                            setattr(packet, "app_response", quic_str)
 
                 else:
                     # Short Header

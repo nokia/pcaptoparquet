@@ -8,14 +8,13 @@ from pcaptoparquet import E2EConfig
 
 from .test_utils import configure_dirs, generate_outputs
 
-
 # # Test errors...
 # def test_error() -> None:
 #     """Test error cases..."""
 #     dirs = configure_dirs()
 #     ddir = os.path.join(dirs["ddir"])
 #     odir = os.path.join(dirs["odir"])
-#     input_file = os.path.join(ddir, "error_05.pcap")
+#     input_file = os.path.join(ddir, "error_quic.pcap")
 #     generate_outputs(input_file, E2EConfig(), "Client", odir, parallel=False)
 
 
