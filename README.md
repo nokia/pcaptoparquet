@@ -8,7 +8,7 @@ To install the package, run the following commands:
 
 ```sh
 python -m venv <your_venv>
-source <your_venv>/bin/activate
+source <your_venv>/bin/activate   # In windows: .\<your_venv>\Scripts\activate 
 python -m pip install --upgrade pip
 python -m pip install -e .
 python -m pip install black isort pyright flake8 Flake8-pyproject mypy tox coverage build twine
@@ -21,6 +21,19 @@ make venv
 ```
 
 ## Usage
+
+### Command line Interface
+Just run: 
+
+```sh
+pcaptoparquet -h
+```
+
+**Note 1**: Portable executable can be created with pyinstaller but this executable has not been fully tested.
+
+**Note 2**: CLI interface was not fully tested in windows environment. Unit testing is only intrumented for linux.
+
+### Programming Interface
 
 The `pcaptoparquet` package provides the `E2EPcap` class for converting pcap files to different formats. Here's how you can use it:
 

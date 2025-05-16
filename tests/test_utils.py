@@ -88,7 +88,11 @@ def generate_outputs(
         assert os.path.exists(output)
         output_size = os.path.getsize(output)
         compression_ratio = output_size / input_size * 100
-        processing_speed = input_size / elapsed_time
+        if elapsed_time > 0.:
+            processing_speed = input_size / elapsed_time
+        else:
+            processing_speed = 0 # This is an error only occurring in Windows environment.
+
         with open(os.path.join(odir, "test_E2EPcap.log"), "a", encoding="utf-8") as f:
             print(f"Performance evaluation for {input_file} format {format}:", file=f)
             print(f"    Input file size:    {input_size} bytes", file=f)
