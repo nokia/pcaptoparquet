@@ -29,7 +29,7 @@ Just run:
 pcaptoparquet -h
 ```
 
-**Note 1**: Portable executable can be created with pyinstaller but this executable has not been fully tested.
+**Note 1**: Portable executable can be created with pyinstaller but this executable has not been fully tested. Just check Makefile for more information.
 
 **Note 2**: CLI interface was not fully tested in windows environment. Unit testing is only intrumented for linux.
 
