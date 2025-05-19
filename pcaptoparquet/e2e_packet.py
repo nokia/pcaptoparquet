@@ -380,7 +380,7 @@ class E2EPacket:
 
         outerip = eth.data
 
-        while outerip and not (isinstance(outerip, (dpkt.ip.IP, dpkt.ip6.IP6))):
+        while outerip and not isinstance(outerip, (dpkt.ip.IP, dpkt.ip6.IP6)):
             try:
                 outerip = getattr(outerip, "data")
             except AttributeError:
