@@ -766,8 +766,8 @@ def test_basic_input_pcap_config() -> None:
     )
     output_file = os.path.join("tests", "out", "99_others", "example_cfg.txt")
     check_txt_file(output_file, check_col=True, num_lines="3")
-    check_column_values(output_file, "transport_type", "UDP", pos=23)
-    check_column_values(output_file, "app_type", "TWAMP", pos=62)
+    check_column_values(output_file, "transport_type", "UDP", pos=24)
+    check_column_values(output_file, "app_type", "TWAMP", pos=63)
 
 
 if __name__ == "__main__":

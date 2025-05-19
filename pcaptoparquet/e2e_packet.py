@@ -99,6 +99,7 @@ class E2EPacket:
         "ip_src": "category",
         "ip_dst": "category",
         "ip_dscp": "category",
+        "ip_ecn": "category",
         "ip_id": "UInt16",
         "ip_ttl": "UInt8",
         "ip_len": "UInt16",
@@ -504,6 +505,8 @@ class E2EPacket:
         self.ip_len = E2ETunelList.decode_length(innerip, 20)
         # - QoS
         self.ip_dscp = E2ETunelList.decode_dscp(innerip)
+        # - ECN
+        self.ip_ecn = E2ETunelList.decode_ecn(innerip)
         # - IP Frag
         self.ip_frag = E2ETunelList.decode_frag(innerip)
 

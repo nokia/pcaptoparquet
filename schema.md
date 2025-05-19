@@ -41,6 +41,7 @@ These fields capture IPv4, IPv6, and ESP information for the inner protocols lay
 | **ip_src**| category|
 | **ip_dst**| category|
 | **ip_dscp**| category|
+| **ip_ecn**| category|
 | **ip_id**| UInt16|
 | **ip_ttl**| UInt8|
 | **ip_len**| UInt16|

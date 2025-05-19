@@ -67,7 +67,17 @@ class E2ETunel:
 
     def __init__(self, tunel_info: dict[str, Any]) -> None:
         for attr in tunel_info:
-            if attr in ["type", "id", "src", "dst", "len", "pkt_id", "pkt_ttl", "dscp"]:
+            if attr in [
+                "type",
+                "id",
+                "src",
+                "dst",
+                "len",
+                "pkt_id",
+                "pkt_ttl",
+                "dscp",
+                "ecn",
+            ]:
                 setattr(self, attr, tunel_info[attr])
             else:
                 raise AttributeError(f"Unknown attribute: {attr}")
@@ -145,6 +155,19 @@ class E2ETunelList:
         except AttributeError:
             qos = getattr(ipkt, "fc") >> 2
         return qos
+
+    @staticmethod
+    def decode_ecn(ipkt: dpkt.Packet) -> int:
+        """
+        Decode the QoS of the IP packet.
+        Throws AttributeError if the packet does not have a QoS field.
+        """
+        ecn = 0
+        try:
+            ecn = getattr(ipkt, "tos") & 0x03
+        except AttributeError:
+            ecn = getattr(ipkt, "fc") & 0x03
+        return ecn
 
     @staticmethod
     def decode_frag(ipkt: dpkt.Packet) -> bool:
@@ -272,6 +295,7 @@ class E2ETunelList:
             pkt_ttl = E2ETunelList.decode_ttl(_ip_)
             length = E2ETunelList.decode_length(_ip_)
             dscp = E2ETunelList.decode_dscp(_ip_)
+            ecn = E2ETunelList.decode_ecn(_ip_)
 
             udp = _ip_.data
 
@@ -290,6 +314,7 @@ class E2ETunelList:
                                 "pkt_id": pkt_id,
                                 "pkt_ttl": pkt_ttl,
                                 "dscp": dscp,
+                                "ecn": ecn,
                             }
                         )
                     )
@@ -313,6 +338,7 @@ class E2ETunelList:
                                 "pkt_id": pkt_id,
                                 "pkt_ttl": pkt_ttl,
                                 "dscp": dscp,
+                                "ecn": ecn,
                             }
                         )
                     )
