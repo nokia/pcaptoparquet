@@ -19,8 +19,11 @@ Example usage:
     pcap.export(outformat="json", output="output.json")
 """
 import datetime
+import gc
+import io
 import json
 import os
+import struct
 import sys
 from typing import Any, Dict, Optional, Tuple
 
@@ -150,64 +153,58 @@ class E2EPcap:
         return encapsulation
 
     @staticmethod
-    def process_partial_pcap(file_handle: Any) -> Dict[str, Any]:
+    def add_error_to_dict_list(
+        pcap_dict_list: Dict[str, Any],
+        pcap_dtypes: Dict[str, str],
+        num: int,
+        error_message: str,
+    ) -> Dict[str, Any]:
         """
-        Process a partial PCAP file.
-        This is a wrapper around process_pcap_packet that reads the PCAP file in chunks.
+        Add error information to the dictionary list.
+        This is used to add error information to the dictionary list
+        when processing a PCAP file.
         """
-
-        pcap_dtypes = E2EPacket.get_dtypes()
-
-        pcap_dict_list: dict[str, Any] = {}
-
         for key in pcap_dtypes:
-            pcap_dict_list[key] = []
-
-        pcap_dict_list["not_decoded_data"] = []
-
-        meta_values: dict[str, str] = {}
-
-        # read the pcap in and count all the sources
-        pcap = dpkt.pcap.Reader(file_handle)
-
-        encapsulation = E2EPcap.datalink_to_encapsulation(pcap.datalink())
-
-        num = 0
-        for timestamp, buf in pcap:
-            num = num + 1
-
-            if buf is None or len(buf) == 0:
-                continue
-
-            try:
-                e2e_pkt = E2EPcap.process_pcap_packet(
-                    num,
-                    timestamp,
-                    buf,
-                    encapsulation,
-                    E2EConfig().get_transport_port_cb(),
-                    meta_values=meta_values,
-                )
-            except ValueError:
-                continue
-
-            new_row = e2e_pkt.to_dict(pcap_dtypes)  # Convert to dict
-
-            for key in pcap_dtypes:
-                pcap_dict_list[key].append(new_row[key])
-
-            pcap_dict_list["not_decoded_data"].append(e2e_pkt.get_not_decoded_data())
-
+            if key == "num":
+                pcap_dict_list[key].append(num)
+            elif key == "error":
+                pcap_dict_list[key].append(True)
+            elif key == "error_message":
+                pcap_dict_list[key].append(error_message)
+            else:
+                pcap_dict_list[key].append(None)
+        pcap_dict_list["not_decoded_data"].append(None)
         return pcap_dict_list
 
     @staticmethod
-    def process_partial_pcapng(file_handle: Any) -> Dict[str, Any]:
+    def process_pcap_common(
+        pcap: Any, params: Optional[dict[str, Any]] = None
+    ) -> pl.DataFrame:
         """
         Process a partial PCAP file.
         This is a wrapper around process_pcap_packet that reads the PCAP file in chunks.
         """
+        if params is None:
+            pcap_dtypes = E2EPacket.get_dtypes()
+            meta_values: dict[str, str] = {}
+            encapsulation = E2EPcap.datalink_to_encapsulation(pcap.datalink())
+            transport_port_cb = E2EConfig().get_transport_port_cb()
+            outformat = "parquet"
+            file_handle = None
+            use_polars = True
+            pktnum = 0
+        else:
+            pcap_dtypes = params["pcap_dtypes"]
+            encapsulation = params["encapsulation"]
+            transport_port_cb = params["transport_port_cb"]
+            meta_values = params["meta_values"]
+            outformat = params["outformat"]
+            file_handle = params["file_handle"]
+            use_polars = params["use_polars"]
+            pktnum = params["pktnum"]
 
-        pcap_dtypes = E2EPacket.get_dtypes()
+        if not use_polars and not file_handle:
+            raise ValueError("File handle is required for non-polars output formats.")
 
         pcap_dict_list: dict[str, Any] = {}
 
@@ -216,40 +213,104 @@ class E2EPcap:
 
         pcap_dict_list["not_decoded_data"] = []
 
-        meta_values: dict[str, str] = {}
-
-        # read the pcap in and count all the sources
-        pcap = dpkt.pcapng.Reader(file_handle)
-
-        encapsulation = E2EPcap.datalink_to_encapsulation(pcap.datalink())
-
         num = 0
+        sep_ = ""
         for timestamp, buf in pcap:
+
             num = num + 1
 
             if buf is None or len(buf) == 0:
-                continue
-
-            try:
-                e2e_pkt = E2EPcap.process_pcap_packet(
-                    num,
-                    timestamp,
-                    buf,
-                    encapsulation,
-                    E2EConfig().get_transport_port_cb(),
-                    meta_values=meta_values,
+                # Add empty values to the dictionary
+                E2EPcap.add_error_to_dict_list(
+                    pcap_dict_list, pcap_dtypes, num, "Empty buffer"
                 )
-            except ValueError:
                 continue
 
-            new_row = e2e_pkt.to_dict(pcap_dtypes)  # Convert to dict
+            if pktnum in (0, num):
+                try:
+                    e2e_pkt = E2EPcap.process_pcap_packet(
+                        num,
+                        timestamp,
+                        buf,
+                        encapsulation,
+                        transport_port_cb,
+                        meta_values=meta_values,
+                    )
+                except (ValueError, struct.error, dpkt.UnpackError):
+                    # Add empty values to the dictionary
+                    E2EPcap.add_error_to_dict_list(
+                        pcap_dict_list, pcap_dtypes, num, "Error processing packet"
+                    )
+                    continue
 
-            for key in pcap_dtypes:
-                pcap_dict_list[key].append(new_row[key])
+                if use_polars:
+                    # Parquet or Polars
+                    new_row = e2e_pkt.to_dict(pcap_dtypes)  # Convert to dict
 
-            pcap_dict_list["not_decoded_data"].append(e2e_pkt.get_not_decoded_data())
+                    for key in pcap_dtypes:
+                        pcap_dict_list[key].append(new_row[key])
 
-        return pcap_dict_list
+                    pcap_dict_list["not_decoded_data"].append(
+                        e2e_pkt.get_not_decoded_data()
+                    )
+
+                else:
+                    # Print the packet for non parquet formats
+                    if outformat == "txt":
+                        print(
+                            str(e2e_pkt),
+                            file=file_handle,
+                        )
+                    elif outformat == "json":
+                        print(
+                            sep_  # Ugly hack to avoid the first comma
+                            + json.dumps(e2e_pkt.to_json(), cls=ComplexEncoder),
+                            file=file_handle,
+                        )
+                        sep_ = ","
+
+        if use_polars:
+            # Convert dtypes based on pcap_dtypes
+            pl_schema = E2EPcap.get_polars_schema(pcap_dtypes)
+
+            pl_pcaparquet = pl.DataFrame(pcap_dict_list, schema=pl.Schema(pl_schema))
+
+        else:
+            pl_pcaparquet = pl.DataFrame()
+
+            # Print the JSON header
+            if outformat == "json":
+                print("]}", file=file_handle)
+
+        return pl_pcaparquet
+
+    @staticmethod
+    def process_partial_pcap(
+        file_handle: Any, params: Optional[dict[str, Any]] = None
+    ) -> io.BytesIO:
+        """
+        Process a partial PCAP file.
+        This is a wrapper around process_pcap_packet that reads the PCAP file in chunks.
+        """
+        return io.BytesIO(
+            E2EPcap.process_pcap_common(
+                pcap=dpkt.pcap.Reader(file_handle), params=params
+            ).serialize()
+        )
+
+    @staticmethod
+    def process_partial_pcapng(
+        file_handle: Any, params: Optional[dict[str, Any]] = None
+    ) -> io.BytesIO:
+        """
+        Process a partial PCAP file.
+        This is a wrapper around process_pcap_packet that reads the PCAP file in chunks.
+        """
+        return io.BytesIO(
+            E2EPcap.process_pcap_common(
+                pcap=dpkt.pcapng.Reader(file_handle), params=params
+            ).serialize()
+        )
 
     def add_tags_to_user_meta(self, tags: dict[str, str]) -> None:
         """
@@ -347,14 +408,31 @@ class E2EPcap:
         else:
             self.file = sys.stdin.buffer  # .raw
 
+        if pcapng:
+            self.pcap = dpkt.pcapng.Reader(self.file)
+        else:
+            self.pcap = dpkt.pcap.Reader(self.file)
+
+        # Encapsulation
+        self.datalink = self.pcap.datalink()
+        self.encapsulation = self.datalink_to_encapsulation(self.datalink)
+
+        # Snaplen
+        self.snaplen = int(self.pcap.snaplen)
+
         # Parallel processing of the PCAP file
         # Only parallelize if the file is larger than a certain size.
+        if pcap_full_name is not None:
+            self.file_size = os.path.getsize(self.pcap_name)
+            if not isinstance(self.file, io.BufferedReader):
+                # Likely a compressed file assumme 4x the size
+                self.file_size = self.file_size * 4
+        else:
+            # Standard input does not have a size
+            self.file_size = 0
+
         self.ps = None
-        if (
-            parallel
-            and pcap_full_name
-            and os.path.getsize(pcap_full_name) > 500_000  # 500KB
-        ):
+        if parallel and pcap_full_name and self.file_size > 500_000:  # 500KB
             # Only parallelize if the file is larger than
             # a certain size and the format is parquet.
             if pcapng:
@@ -367,18 +445,6 @@ class E2EPcap:
                     pcap_full_name,
                     callback=E2EPcap.process_partial_pcap,
                 )
-
-        if pcapng:
-            self.pcap = dpkt.pcapng.Reader(self.file)
-        else:
-            self.pcap = dpkt.pcap.Reader(self.file)
-
-        # Encapsulation
-        self.datalink = self.pcap.datalink()
-        self.encapsulation = self.datalink_to_encapsulation(self.datalink)
-
-        # Snaplen
-        self.snaplen = int(self.pcap.snaplen)
 
         if config is None:
             config = E2EConfig()
@@ -518,12 +584,12 @@ class E2EPcap:
             file_handle = E2EPcap.get_output_buffer(outformat, output, use_polars)
             close_fh = output is not None
 
+        pcap_dtypes = E2EPacket.get_dtypes(
+            (self._common_user_meta, self._common_pcap_meta)
+        )
+
         if use_polars:
             # Create empty dictionary for the polars dataframe columns
-            pcap_dtypes = E2EPacket.get_dtypes(
-                (self._common_user_meta, self._common_pcap_meta)
-            )
-
             pcap_dict_list: dict[str, Any] = {}
 
             for key in pcap_dtypes:
@@ -548,106 +614,63 @@ class E2EPcap:
         # Multiprocessing
         if self.ps is not None:
             # Parallel processing
-            partial_results = self.ps.split()
-
-            # Sort results by utc_date_time of the first packet
-            partial_results.sort(
-                key=lambda x: getattr(x, "result")()["utc_date_time"][0]
+            partial_results = self.ps.split(
+                params={
+                    "encapsulation": self.encapsulation,
+                    "transport_port_cb": self.transport_port_cb,
+                    "meta_values": meta_values,
+                    "pcap_dtypes": pcap_dtypes,
+                    "outformat": outformat,
+                    "file_handle": None,  # No file handle in parallel processing
+                    "pktnum": pktnum,
+                    "use_polars": use_polars,
+                }
             )
 
+            pl_list: list[pl.DataFrame] = []
+
             # merge the results
-            ps_pcap_dict_list = partial_results.pop(0).result()  # type: ignore
-            first_date = ps_pcap_dict_list["utc_date_time"][0]
-            for partial in partial_results:
-                next_pcap_dict_list = partial.result()  # type: ignore
-                if next_pcap_dict_list["utc_date_time"][0] < first_date:
-                    raise ValueError("Results are not sorted by utc_date_time")
+            while len(partial_results) > 0:
+                partial = partial_results.pop(0)
+                # If the result is ready, add it to the list
+                pl_list.append(pl.DataFrame.deserialize(partial.result()))
 
-                first_date = next_pcap_dict_list["utc_date_time"][0]
-                for key in next_pcap_dict_list:
-                    ps_pcap_dict_list[key].extend(next_pcap_dict_list[key])
+            del partial_results
+            gc.collect()
 
-            total_len = len(ps_pcap_dict_list["num"])
-            ps_pcap_dict_list["num"] = list(range(1, total_len + 1))
+            # Sort results by utc_date_time of the first packet
+            pl_list.sort(key=lambda x: x["utc_date_time"][0])
 
-            # Need to add the metadata values to the dictionary
-            # from pcap_dtypes and meta_values
-            for key in pcap_dtypes:
-                # if key in ps_pcap_dict_list add it to pcap_dict_list:
-                if key in ps_pcap_dict_list:
-                    pcap_dict_list[key] = ps_pcap_dict_list[key]
-                else:
-                    pcap_dict_list[key] = [meta_values[key]] * total_len
+            pl_pcaparquet = pl.concat(pl_list)
 
-            pcap_dict_list["not_decoded_data"] = ps_pcap_dict_list["not_decoded_data"]
+            del pl_list  # Clear the list to free memory
+            gc.collect()
 
-        else:  # Single processing
-            num = 0
-            sep_ = ""
-            for timestamp, buf in self.pcap:
-                num = num + 1
+            total_len = len(pl_pcaparquet)
 
-                if buf is None or len(buf) == 0:
-                    continue
+            # Create or update num column with sequential numbers
+            # from 1 to total_len
+            pl_pcaparquet = pl_pcaparquet.with_columns(
+                pl.arange(1, total_len + 1).cast(pl.UInt32).alias("num")
+            )
 
-                if pktnum == 0 or pktnum == num:
-                    try:
-                        e2e_pkt = self.process_pcap_packet(
-                            num,
-                            timestamp,
-                            buf,
-                            self.encapsulation,
-                            self.transport_port_cb,
-                            meta_values=meta_values,
-                        )
-                    except ValueError:
-                        continue
-
-                    # Print the packet for non parquet formats
-                    if use_polars:  # Parquet or Polars
-                        new_row = e2e_pkt.to_dict(pcap_dtypes)  # Convert to dict
-
-                        for key in pcap_dtypes:
-                            pcap_dict_list[key].append(new_row[key])
-
-                        pcap_dict_list["not_decoded_data"].append(
-                            e2e_pkt.get_not_decoded_data()
-                        )
-
-                    else:
-                        if outformat == "txt":
-                            print(
-                                str(e2e_pkt),
-                                file=file_handle,
-                            )
-                        elif outformat == "json":
-                            try:
-                                print(
-                                    sep_  # Ugly hack to avoid the first comma
-                                    + json.dumps(e2e_pkt.to_json(), cls=ComplexEncoder),
-                                    file=file_handle,
-                                )
-                                sep_ = ","
-                            except Exception as e:  # pylint: disable=broad-except
-                                print(
-                                    "ERROR: "
-                                    + str(e)
-                                    + " in packet "
-                                    + str(num)
-                                    + " at "
-                                    + str(timestamp),
-                                    file=sys.stderr,
-                                )
+        else:
+            # Single processing
+            pl_pcaparquet = E2EPcap.process_pcap_common(
+                pcap=self.pcap,
+                params={
+                    "encapsulation": self.encapsulation,
+                    "transport_port_cb": self.transport_port_cb,
+                    "meta_values": meta_values,
+                    "pcap_dtypes": pcap_dtypes,
+                    "outformat": outformat,
+                    "file_handle": file_handle,
+                    "pktnum": pktnum,
+                    "use_polars": use_polars,
+                },
+            )
 
         if use_polars:
-            # Convert dtypes based on pcap_dtypes
-            pl_schema = E2EPcap.get_polars_schema(pcap_dtypes)
-
-            # for key in pcap_dtypes:
-            #     if pcap_dtypes[key] not in ["object"]:
-            #         pl_pcaparquet[key] = pl_pcaparquet[key].astype(pcap_dtypes[key])
-            pl_pcaparquet = pl.DataFrame(pcap_dict_list, schema=pl.Schema(pl_schema))
-
             # Call callback for further processing
             for callback in self.post_callbacks:
                 pl_pcaparquet = callback(pl_pcaparquet)
@@ -660,9 +683,6 @@ class E2EPcap:
                 return pl_pcaparquet
 
             E2EPcap.write_dataframe(pl_pcaparquet, file_handle, outformat, close_fh)
-
-        elif outformat == "json":
-            print("]}", file=file_handle)
 
         if close_fh:
             file_handle.close()  # type: ignore

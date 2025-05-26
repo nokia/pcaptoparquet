@@ -249,7 +249,6 @@ class E2ETunelList:
             if firstoctect == 0x45:
                 try:
                     next_ip = dpkt.ip.IP(buf[ii:])
-                    plen = getattr(next_ip, "len") - 20
                 except dpkt.UnpackError:
                     next_ip = None
                     plen = -1
@@ -257,10 +256,12 @@ class E2ETunelList:
             elif firstoctect & 0xF0 == 0x60:
                 try:
                     next_ip = dpkt.ip6.IP6(buf[ii:])
-                    plen = getattr(next_ip, "plen")
                 except dpkt.UnpackError:
                     next_ip = None
                     plen = -1
+
+        if next_ip:
+            plen = E2ETunelList.decode_length(next_ip, 20)
 
         return teid, plen, next_ip
 
@@ -269,12 +270,16 @@ class E2ETunelList:
         """
         Decode VxLAN packet and extract the VNI and inner IP packet.
         """
+        if len(buf) < 4:
+            return 0, -1, None
+
         teid = struct.unpack("!I", buf[3:7])[0] & 0x00FFFFFF
         plen = 0
         try:
             next_ip = dpkt.ethernet.Ethernet(buf[8:]).data
         except dpkt.UnpackError:
             next_ip = None
+            plen = -1
 
         if next_ip:
             plen = E2ETunelList.decode_length(next_ip)
@@ -326,7 +331,7 @@ class E2ETunelList:
             # 4789	Virtual eXtensible Local Area Network (VxLAN)
             elif getattr(udp, "sport") == 4789 or getattr(udp, "dport") == 4789:
                 teid, plen, _ip_ = E2ETunelList.decode_vxlan(udp.data)
-                if plen > 0:
+                if not plen < 0:
                     self.tunels.append(
                         E2ETunel(
                             {
@@ -342,7 +347,8 @@ class E2ETunelList:
                             }
                         )
                     )
-                else:
+
+                if not plen > 0:  # No inner IP packet
                     _new_ip_ = _ip_
                     _ip_ = None
 

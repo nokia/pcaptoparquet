@@ -3,12 +3,45 @@ Utilities for testing
 """
 
 import cProfile
+import linecache
 import os
 import pstats
+import tracemalloc
 from time import process_time
-from typing import Optional
+from typing import Any, Optional
 
 from pcaptoparquet import E2EConfig, E2EPcap
+
+
+def display_top(
+    snapshot: Any, key_type: str = "lineno", limit: int = 10, file: Optional[Any] = None
+) -> None:
+    """Display the top lines of memory usage"""
+    snapshot = snapshot.filter_traces(
+        (
+            tracemalloc.Filter(False, "<frozen importlib._bootstrap>"),
+            tracemalloc.Filter(False, "<unknown>"),
+        )
+    )
+    top_stats = snapshot.statistics(key_type)
+
+    print(f"Top {limit} lines", file=file)
+    for index, stat in enumerate(top_stats[:limit], 1):
+        frame = stat.traceback[0]
+        print(
+            f"#{index}: {frame.filename}:{frame.lineno}: {stat.size / 1024:.1f} KiB",
+            file=file,
+        )
+        line = linecache.getline(frame.filename, frame.lineno).strip()
+        if line:
+            print(f"    {line}", file=file)
+
+    other = top_stats[limit:]
+    if other:
+        size = sum(stat.size for stat in other)
+        print(f"{len(other)} other: {size / 1024:.1f} KiB", file=file)
+    total = sum(stat.size for stat in top_stats)
+    print(f"Total allocated size: {total / 1024:.1f} KiB", file=file)
 
 
 def configure_dirs() -> dict[str, str]:
@@ -80,11 +113,15 @@ def generate_outputs(
             os.remove(output)
 
         with cProfile.Profile() as pr:
+            tracemalloc.start()
             start_time = process_time()
             process_e2e(
                 input_file, config, point, odir, outformat=outformat, parallel=parallel
             )
             elapsed_time = process_time() - start_time
+            snapshot = tracemalloc.take_snapshot()
+            tracemalloc.stop()
+
         assert os.path.exists(output)
         output_size = os.path.getsize(output)
         compression_ratio = output_size / input_size * 100
@@ -96,7 +133,9 @@ def generate_outputs(
             )
 
         with open(os.path.join(odir, "test_E2EPcap.log"), "a", encoding="utf-8") as f:
-            print(f"Performance evaluation for {input_file} format {format}:", file=f)
+            print(
+                f"Performance evaluation for {input_file} format {outformat}:", file=f
+            )
             print(f"    Input file size:    {input_size} bytes", file=f)
             print(f"    Output file size:   {output_size} bytes", file=f)
             print(f"    Compression ratio:  {compression_ratio:.2f}%", file=f)
@@ -106,13 +145,14 @@ def generate_outputs(
             )
             print("", file=f)
             if print_profile:
-                print(f"Profile result for {input_file} format {format}:", file=f)
+                print(f"Profile result for {input_file} format {outformat}:", file=f)
 
             profile_result = pstats.Stats(pr, stream=f)
             profile_result.sort_stats(pstats.SortKey.TIME)
             if print_profile:
                 profile_result.print_stats()
                 print("", file=f)
+                display_top(snapshot, file=f)
 
             profile_result.dump_stats(
                 os.path.join(

@@ -152,6 +152,8 @@ class E2EPacket:
         "app_seq": "UInt64",
         "app_request": "string",
         "app_response": "string",
+        "error": "boolean",
+        "error_message": "string",
     }
 
     _not_decoded_data: Any = None
