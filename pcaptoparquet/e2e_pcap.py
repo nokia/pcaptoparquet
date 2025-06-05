@@ -627,6 +627,8 @@ class E2EPcap:
                 }
             )
 
+            self.ps.shutdown()  # Shutdown the parallel processing
+
             pl_list: list[pl.DataFrame] = []
 
             # merge the results
@@ -641,8 +643,14 @@ class E2EPcap:
             # Sort results by utc_date_time of the first packet
             pl_list.sort(key=lambda x: x["utc_date_time"][0])
 
-            pl_pcaparquet = pl.concat(pl_list)
+            try:
+                pl_pcaparquet = pl.concat(pl_list)
+            except pl.exceptions.CategoricalRemappingWarning:
+                # DataFrames are comming from different processes
+                # and have different categories, so we need to remap them
+                pass
 
+            pl_list.clear()  # Clear the list to free memory
             del pl_list  # Clear the list to free memory
             gc.collect()
 

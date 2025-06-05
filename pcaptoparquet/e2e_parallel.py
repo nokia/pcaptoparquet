@@ -6,16 +6,19 @@ This module add pcapng support to the PCAPParallel class.
 """
 
 import bz2
+import gc
 import gzip
 import io
 import lzma
 import multiprocessing
 import os
 from concurrent.futures import Future, ProcessPoolExecutor
+from math import ceil
 from struct import unpack as struct_unpack
 from typing import Any, List, Optional
 
 import dpkt
+import psutil
 
 
 class PcapngReader:
@@ -125,7 +128,7 @@ class PcapngReader:
 
 class PCAPParallel:
     """
-    Extends the PCAPParallel class to provide a more specific implementation
+    Based on PCAPParallel class to provide a more specific implementation
     """
 
     def __init__(self, pcap_file: str, callback: Any) -> None:
@@ -143,9 +146,10 @@ class PCAPParallel:
         self.maximum_count = 0
         self.header: bytes = bytes()
         self.buffer: bytes = bytes()
-        self.total_packets: int = 0
-        self.split_size: int = 0
-        self.packets_read: int = 0
+        self.unprocessed_bytes: List[int] = []
+        self.processed_bytes: int = 0
+        self.split_packets: int = 0
+        self.split_sizes: List[int] = []
         self.dpkt_data = None
         self.our_data = None
         self.results: List[Any] = []
@@ -154,6 +158,19 @@ class PCAPParallel:
 
         if not os.path.exists(self.pcap_file):
             raise ValueError(f"failed to find pcap file '{self.pcap_file}'")
+
+    def shutdown(self) -> None:
+        """
+        Shutdown the process pool executor
+        """
+        if self.process_pool is not None:
+            self.process_pool.shutdown(wait=True, cancel_futures=False)
+
+        if self.dpkt_data is not None:
+            self.dpkt_data.close()
+
+        if self.our_data is not None:
+            self.our_data.close()
 
     @staticmethod
     def open_maybe_compressed(filename: str) -> Any:
@@ -168,9 +185,8 @@ class PCAPParallel:
         max_len = max(len(x) for x in magic_dict)
 
         # read the first 24 bytes which is the pcap header
-        base_handle = open(filename, "rb")
-        file_start = base_handle.read(max_len)
-        base_handle.close()
+        with open(filename, "rb") as base_handle:
+            file_start = base_handle.read(max_len)
 
         return_handle: Optional[Any] = None
 
@@ -216,46 +232,64 @@ class PCAPParallel:
 
         return ".pcapng" in self.pcap_file
 
-    def dpkt_total_packets_cb(self, timestamp: float, packet: bytes) -> None:
+    def dpkt_count_bytes_cb(
+        self,
+        timestamp: float,  # pylint: disable=unused-argument
+        packet: bytes,  # pylint: disable=unused-argument
+    ) -> None:
         """
         Handles each packet received by dpkt
         """
-        self.total_packets += 1
+        self.unprocessed_bytes.append(self.dpkt_data.tell())  # type: ignore
 
-    def set_split_size(self) -> None:
+    def set_split_sizes(self) -> None:
         """
         Attempt to calculate a reasonable split size
         """
         cores = multiprocessing.cpu_count()
 
-        size_handle = self.open_maybe_compressed(self.pcap_file)
+        # Get available memory using psutil
+        available_memory = psutil.virtual_memory().available
+
+        self.dpkt_data = self.open_maybe_compressed(self.pcap_file)
 
         # now process with dpkt to pull out each packet
         if self.is_pcapng():
-            pcap = dpkt.pcapng.Reader(size_handle)  # PcapngReader(size_handle)
+            pcap = dpkt.pcapng.Reader(self.dpkt_data)  # PcapngReader(size_handle)
         else:
-            pcap = dpkt.pcap.Reader(size_handle)
+            pcap = dpkt.pcap.Reader(self.dpkt_data)
 
-        pcap.dispatch(self.maximum_count, self.dpkt_total_packets_cb)
+        pcap.dispatch(self.maximum_count, self.dpkt_count_bytes_cb)
 
-        self.split_size = int(self.total_packets / cores) + 1
+        # euristic to determine how many packets we can process in parallel
+        # testing shows that we use more than 25 times the size of the pcap file
+        # We rounded this to 32 times unprocessed_bytes[-1] divided by memory available
+        # the we keep the following integer using ceil:
+        mem_factor = int(ceil(32 * self.unprocessed_bytes[-1] / available_memory))
 
-        size_handle.close()
+        self.split_packets = int(len(self.unprocessed_bytes) / cores / mem_factor) + 1
 
-    def save_packets(self) -> None:
+        pkt = self.split_packets
+        pos_bytes = self.our_data.tell()  # type: ignore
+        while pkt < len(self.unprocessed_bytes):
+            self.split_sizes.append(self.unprocessed_bytes[pkt] - pos_bytes)
+            pos_bytes = self.unprocessed_bytes[pkt]
+            pkt += self.split_packets
+
+        self.split_sizes.append(self.unprocessed_bytes[-1] - pos_bytes)
+
+        self.dpkt_data.close()  # type: ignore
+
+        self.unprocessed_bytes.clear()
+        gc.collect()
+
+    def spawn_process(self, bytes_to_read: int) -> None:
         """
         Saves the contents seen to this point into a new io.BytesIO
         """
         self.buffer = bytes(self.header)
 
         # read from our files current position to where the dpkt reader is
-        bytes_to_read: int = (
-            self.dpkt_data.tell()  # type: ignore
-            - self.our_data.tell()  # type: ignore
-        )
-        if not bytes_to_read > 0:
-            return
-
         self.buffer += self.our_data.read(bytes_to_read)  # type: ignore
 
         self.spawned_processes += 1
@@ -266,27 +300,14 @@ class PCAPParallel:
             )
         )
 
-    def dpkt_callback(self, timestamp: float, packet: bytes) -> None:
-        """
-        Handles each packet received by dpkt
-        """
-        self.packets_read += 1
-
-        if self.packets_read % self.split_size == 0:
-            self.save_packets()
-
     def split(self, params: Optional[dict[str, Any]] = None) -> List[Future[Any]]:
         """
         Does the actual reading and splitting
         """
-
         self.params = params
 
         # open one for the dpkt reader and one for us independently
         self.our_data = self.open_maybe_compressed(self.pcap_file)
-        self.dpkt_data = self.open_maybe_compressed(self.pcap_file)
-
-        self.set_split_size()
 
         # now process with dpkt to pull out each packet
         if self.is_pcapng():
@@ -294,26 +315,24 @@ class PCAPParallel:
             pcap_hdr = PcapngReader(hdr_data)  # Dummy Header Decoding
             hdr_data.close()
 
-            pcap = dpkt.pcapng.Reader(self.dpkt_data)
             hdr_bytes = self.our_data.read(  # type: ignore
                 pcap_hdr.shb.len + pcap_hdr.idb.len
             )
         else:
-            pcap = dpkt.pcap.Reader(self.dpkt_data)
             hdr_bytes = self.our_data.read(  # type: ignore
                 getattr(dpkt.pcap.FileHdr, "__hdr_len__")
             )
 
         setattr(self, "header", hdr_bytes)
 
-        pcap.dispatch(self.maximum_count, self.dpkt_callback)
+        # This must be called after reading the header
+        self.set_split_sizes()
 
-        # Need to process the remaining bytes
-        self.save_packets()
+        for split_size in self.split_sizes:
+            self.spawn_process(split_size)
 
         self.process_pool.shutdown(wait=True, cancel_futures=False)
 
         self.our_data.close()  # type: ignore
-        self.dpkt_data.close()  # type: ignore
 
         return self.results

@@ -128,7 +128,7 @@ class E2ETunelList:
             ttl = getattr(ipkt, "ttl")
         except AttributeError:
             ttl = getattr(ipkt, "hlim")
-        return ttl
+        return int(ttl)
 
     @staticmethod
     def decode_length(ipkt: dpkt.Packet, delta: int = 0) -> int:
@@ -154,7 +154,7 @@ class E2ETunelList:
             qos = getattr(ipkt, "tos") >> 2
         except AttributeError:
             qos = getattr(ipkt, "fc") >> 2
-        return qos
+        return int(qos)
 
     @staticmethod
     def decode_ecn(ipkt: dpkt.Packet) -> int:
@@ -167,7 +167,7 @@ class E2ETunelList:
             ecn = getattr(ipkt, "tos") & 0x03
         except AttributeError:
             ecn = getattr(ipkt, "fc") & 0x03
-        return ecn
+        return int(ecn)
 
     @staticmethod
     def decode_frag(ipkt: dpkt.Packet) -> bool:

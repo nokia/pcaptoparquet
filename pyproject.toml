@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pcaptoparquet"
-version = "0.1.20250521"
+version = "0.1.20250609"
 dependencies = [
     'dpkt',
     'cryptography',
-#    'pcap-parallel',
+    'psutil',
     'polars'
 ]
 authors = [
