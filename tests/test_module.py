@@ -468,6 +468,26 @@ def test_twamp_pcap() -> None:
     generate_outputs(input_file, E2EConfig(configpath=configpath), "Client", odir)
 
 
+# 00_file_formats/10_raw_ipv4_client_10MB.pcap
+def test_coverage_parallel_pcap() -> None:
+    """Test the raw_ipv4_client_10MB.pcap file"""
+    dirs = configure_dirs()
+    ddir = os.path.join(dirs["ddir"], "00_functional", "00_file_formats")
+    odir = os.path.join(dirs["odir"], "00_functional", "99_coverage")
+    input_file = os.path.join(ddir, "10_raw_ipv4_client_10MB.pcap.gz")
+    generate_outputs(input_file, E2EConfig(), "Client", odir, parallel=True)
+
+
+# 00_file_formats/11_raw_ipv4_client_10MB.pcapng
+def test_coverage_parallel_pcapng() -> None:
+    """Test the raw_ipv4_client_10MB.pcapng file"""
+    dirs = configure_dirs()
+    ddir = os.path.join(dirs["ddir"], "00_functional", "00_file_formats")
+    odir = os.path.join(dirs["odir"], "00_functional", "99_coverage")
+    input_file = os.path.join(ddir, "11_raw_ipv4_client_10MB.pcapng.gz")
+    generate_outputs(input_file, E2EConfig(), "Client", odir, parallel=True)
+
+
 if __name__ == "__main__":
 
     test_raw_ipv4_network_2mb_pcap()
