@@ -67,3 +67,8 @@ strict = true
 
 [tool.pyright]
 typeCheckingMode = "basic"
+
+[tool.pytest.ini_options]
+filterwarnings = [
+  "ignore::polars.exceptions.CategoricalRemappingWarning",
+]

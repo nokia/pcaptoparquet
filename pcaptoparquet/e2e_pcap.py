@@ -25,14 +25,20 @@ import json
 import os
 import struct
 import sys
+import warnings
 from typing import Any, Dict, Optional, Tuple
 
 import dpkt
 import polars as pl
+from polars.exceptions import CategoricalRemappingWarning
 
 from .e2e_config import E2EConfig
 from .e2e_packet import E2EPacket
 from .e2e_parallel import PCAPParallel
+
+# DataFrames are comming from different processes
+# and have different categories, so we need to remap them
+warnings.simplefilter("ignore", category=CategoricalRemappingWarning)
 
 
 # Utility class to encode complex objects to JSON
@@ -641,14 +647,13 @@ class E2EPcap:
             gc.collect()
 
             # Sort results by utc_date_time of the first packet
-            pl_list.sort(key=lambda x: x["utc_date_time"][0])
+            pl_list.sort(
+                key=lambda x: x.filter(pl.col("utc_date_time").is_not_null())[
+                    "utc_date_time"
+                ][0]
+            )
 
-            try:
-                pl_pcaparquet = pl.concat(pl_list)
-            except pl.exceptions.CategoricalRemappingWarning:
-                # DataFrames are comming from different processes
-                # and have different categories, so we need to remap them
-                pass
+            pl_pcaparquet = pl.concat(pl_list)
 
             pl_list.clear()  # Clear the list to free memory
             del pl_list  # Clear the list to free memory
