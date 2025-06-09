@@ -8,7 +8,6 @@ from pcaptoparquet import E2EConfig
 
 from .test_utils import configure_dirs, generate_outputs
 
-
 # # Test errors...
 # def test_error() -> None:
 #     """Test error cases..."""
