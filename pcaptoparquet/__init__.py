@@ -7,6 +7,7 @@ from __future__ import absolute_import, division
 
 import importlib.metadata
 
+from .e2e_cli import E2ECli
 from .e2e_config import E2EConfig
 from .e2e_pcap import E2EPcap
 
@@ -29,4 +30,4 @@ except KeyError:
 __license__ = "BSD-3-Clause"
 
 
-__all__ = ["E2EConfig", "E2EPcap"]
+__all__ = ["E2EConfig", "E2EPcap", "E2ECli"]
