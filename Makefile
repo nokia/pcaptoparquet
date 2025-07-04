@@ -62,7 +62,7 @@ clean-venv:
 clean-check:
 	find . -name "__pycache__" -exec rm -rf {} +
 	find . -name "*.pyc" -exec rm -f {} +
-	rm -rf .mypy_cache .pytest_cache
+	rm -rf .mypy_cache */.mypy_cache .pytest_cache
 
 clean-test:
 	rm -rf .tox

@@ -3,9 +3,9 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 """
-This module defines the E2ETunel and E2ETunelList classes.
+This module defines the E2ETunnel and E2ETunnelList classes.
 
-E2ETunel represents an end-to-end tunnel with the following attributes:
+E2ETunnel represents an end-to-end tunnel with the following attributes:
 - Type
 - Source
 - Destination
@@ -13,19 +13,19 @@ E2ETunel represents an end-to-end tunnel with the following attributes:
 - IP ID
 - IP TTL
 
-E2ETunelList represents a list of E2ETunel objects. It takes an outer IP packet as input
+E2ETunnelList represents a list of E2ETunnel objects. It takes an outer IP packet as input
 and extracts the tunneled packets from it. The tunneled packets can be of two types:
-GTP-U or VxLAN. The E2ETunelList class provides methods to convert the list of tunneled
+GTP-U or VxLAN. The E2ETunnelList class provides methods to convert the list of tunneled
 packets to JSON format.
 
 Example usage:
     outer_ip = dpkt.ip.IP(...)
-    tunel_list = E2ETunelList(outer_ip)
-    print(tunel_list)
+    tunnel_list = E2ETunnelList(outer_ip)
+    print(tunnel_list)
 
 Output:
-    E2ETunelList(
-        E2ETunel(
+    E2ETunnelList(
+        E2ETunnel(
             type='GTP-U',
             id=123,
             src='192.168.0.1',
@@ -35,7 +35,7 @@ Output:
             pkt_ttl=64,
             dscp=0
         ),
-        E2ETunel(
+        E2ETunnel(
             type='VxLAN',
             id=789,
             src='192.168.0.3',
@@ -54,7 +54,7 @@ import dpkt
 from dpkt.utils import inet_to_str
 
 
-class E2ETunel:
+class E2ETunnel:
     """
     Represents an end-to-end tunnel with the following attributes:
          - Type
@@ -65,8 +65,8 @@ class E2ETunel:
          - IP TTL
     """
 
-    def __init__(self, tunel_info: dict[str, Any]) -> None:
-        for attr in tunel_info:
+    def __init__(self, tunnel_info: dict[str, Any]) -> None:
+        for attr in tunnel_info:
             if attr in [
                 "type",
                 "id",
@@ -78,7 +78,7 @@ class E2ETunel:
                 "dscp",
                 "ecn",
             ]:
-                setattr(self, attr, tunel_info[attr])
+                setattr(self, attr, tunnel_info[attr])
             else:
                 raise AttributeError(f"Unknown attribute: {attr}")
 
@@ -90,7 +90,7 @@ class E2ETunel:
 
     def to_json(self) -> dict[str, Any]:
         """
-        Convert the E2ETunel object to a dictionary.
+        Convert the E2ETunnel object to a dictionary.
         """
         d_ = {}
         for attr in self.__dict__:
@@ -98,9 +98,9 @@ class E2ETunel:
         return d_
 
 
-class E2ETunelList:
+class E2ETunnelList:
     """
-    Represents a list of E2ETunel objects. It takes an outer IP packet as input
+    Represents a list of E2ETunnel objects. It takes an outer IP packet as input
     and extracts the tunneled packets from it. The tunneled packets can be of two types:
     GTP-U or VxLAN.
     """
@@ -261,7 +261,7 @@ class E2ETunelList:
                     plen = -1
 
         if next_ip:
-            plen = E2ETunelList.decode_length(next_ip, 20)
+            plen = E2ETunnelList.decode_length(next_ip, 20)
 
         return teid, plen, next_ip
 
@@ -282,34 +282,34 @@ class E2ETunelList:
             plen = -1
 
         if next_ip:
-            plen = E2ETunelList.decode_length(next_ip)
+            plen = E2ETunnelList.decode_length(next_ip)
 
         return teid, plen, next_ip
 
     def __init__(self, outerip: dpkt.Packet) -> None:
         _ip_ = outerip
         _new_ip_ = outerip
-        self.tunels = []
+        self.tunnels = []
         while _ip_ and isinstance(_ip_.data, dpkt.udp.UDP):
             # Sorted list to have the unique ID regardless of
             # the packet direction.
             # Need to use getattr because dpkt properties are
             # created dynamically. See __hdr__ in dpkt.ip.IP.
             ips = [inet_to_str(getattr(_ip_, "src")), inet_to_str(getattr(_ip_, "dst"))]
-            pkt_id = E2ETunelList.decode_id(_ip_)
-            pkt_ttl = E2ETunelList.decode_ttl(_ip_)
-            length = E2ETunelList.decode_length(_ip_)
-            dscp = E2ETunelList.decode_dscp(_ip_)
-            ecn = E2ETunelList.decode_ecn(_ip_)
+            pkt_id = E2ETunnelList.decode_id(_ip_)
+            pkt_ttl = E2ETunnelList.decode_ttl(_ip_)
+            length = E2ETunnelList.decode_length(_ip_)
+            dscp = E2ETunnelList.decode_dscp(_ip_)
+            ecn = E2ETunnelList.decode_ecn(_ip_)
 
             udp = _ip_.data
 
             # 2152	GTP user data messages (GTP-U)
             if getattr(udp, "sport") == 2152 or getattr(udp, "dport") == 2152:
-                teid, plen, _ip_ = E2ETunelList.decode_gtp(udp.data)
+                teid, plen, _ip_ = E2ETunnelList.decode_gtp(udp.data)
                 if not plen < 0:
-                    self.tunels.append(
-                        E2ETunel(
+                    self.tunnels.append(
+                        E2ETunnel(
                             {
                                 "type": "GTP-U",
                                 "id": teid,
@@ -330,10 +330,10 @@ class E2ETunelList:
 
             # 4789	Virtual eXtensible Local Area Network (VxLAN)
             elif getattr(udp, "sport") == 4789 or getattr(udp, "dport") == 4789:
-                teid, plen, _ip_ = E2ETunelList.decode_vxlan(udp.data)
+                teid, plen, _ip_ = E2ETunnelList.decode_vxlan(udp.data)
                 if not plen < 0:
-                    self.tunels.append(
-                        E2ETunel(
+                    self.tunnels.append(
+                        E2ETunnel(
                             {
                                 "type": "VxLAN",
                                 "id": teid,
@@ -363,15 +363,15 @@ class E2ETunelList:
 
     def __repr__(self) -> str:
         l_ = []
-        for tt in self.tunels:
+        for tt in self.tunnels:
             l_.append(repr(tt))
         return f"{self.__class__.__name__}({', '.join(l_)})"
 
     def to_json(self) -> list[dict[str, Any]]:
         """
-        Convert the E2ETunelList object to a list of dictionaries.
+        Convert the E2ETunnelList object to a list of dictionaries.
         """
         l_ = []
-        for tt in self.tunels:
+        for tt in self.tunnels:
             l_.append(tt.to_json())
         return l_

@@ -74,7 +74,7 @@ from typing import Any, Optional, Union
 import dpkt
 from dpkt.utils import inet_to_str, mac_to_str
 
-from .e2e_tunel import E2ETunelList
+from .e2e_tunnel import E2ETunnelList
 
 
 class E2EPacket:
@@ -93,7 +93,7 @@ class E2EPacket:
         "eth_dst": "category",
         "eth_vlan_tags": "string",
         "eth_mpls_labels": "string",
-        "tunel": "string",
+        "tunnel": "string",
         # Network Layer Fields and types
         "ip_version": "category",
         "ip_src": "category",
@@ -277,7 +277,7 @@ class E2EPacket:
             else:
                 value = str(obj)
         else:
-            if name in ["eth_vlan_tags", "eth_mpls_labels", "tunel"]:
+            if name in ["eth_vlan_tags", "eth_mpls_labels", "tunnel"]:
                 value = "[]"
             else:
                 value = ""
@@ -393,11 +393,11 @@ class E2EPacket:
 
         return None
 
-    def decode_tunels(
+    def decode_tunnels(
         self, outerip: Union[dpkt.ip.IP, dpkt.ip6.IP6]
     ) -> Optional[Union[dpkt.ip.IP, dpkt.ip6.IP6]]:
         """
-        Decode the tunels of a packet.
+        Decode the tunnels of a packet.
 
         Args:
             outerip: The outer IP packet.
@@ -408,10 +408,10 @@ class E2EPacket:
         # Tunnel
 
         try:
-            tlist = E2ETunelList(outerip)
-            if len(tlist.tunels) > 0:
+            tlist = E2ETunnelList(outerip)
+            if len(tlist.tunnels) > 0:
                 innerip = tlist.ip
-                self.tunel = tlist
+                self.tunnel = tlist
             else:
                 innerip = outerip
         except AttributeError:
@@ -500,17 +500,17 @@ class E2EPacket:
         self.ip_dst = inet_to_str(getattr(innerip, "dst"))
 
         # - ID
-        self.ip_id = E2ETunelList.decode_id(innerip)
+        self.ip_id = E2ETunnelList.decode_id(innerip)
         # - IP TTL
-        self.ip_ttl = E2ETunelList.decode_ttl(innerip)
+        self.ip_ttl = E2ETunnelList.decode_ttl(innerip)
         # - IP Length
-        self.ip_len = E2ETunelList.decode_length(innerip, 20)
+        self.ip_len = E2ETunnelList.decode_length(innerip, 20)
         # - QoS
-        self.ip_dscp = E2ETunelList.decode_dscp(innerip)
+        self.ip_dscp = E2ETunnelList.decode_dscp(innerip)
         # - ECN
-        self.ip_ecn = E2ETunelList.decode_ecn(innerip)
+        self.ip_ecn = E2ETunnelList.decode_ecn(innerip)
         # - IP Frag
-        self.ip_frag = E2ETunelList.decode_frag(innerip)
+        self.ip_frag = E2ETunnelList.decode_frag(innerip)
 
         transport = innerip.data
 
@@ -863,7 +863,7 @@ class E2EPacket:
 
         # Get Inner IP
         if outerip:
-            innerip = self.decode_tunels(outerip)
+            innerip = self.decode_tunnels(outerip)
         else:
             innerip = None
 

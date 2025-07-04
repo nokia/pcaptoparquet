@@ -100,44 +100,44 @@ def test_sll_unknown_pcap() -> None:
     generate_outputs(input_file, E2EConfig(), "Client", odir)
 
 
-# 02_tunels/00_eth_802.1q_ipv4_udp_gtp_ipv4_network_5MB.pcap
+# 02_tunnels/00_eth_802.1q_ipv4_udp_gtp_ipv4_network_5MB.pcap
 def test_eth_802_1q_ipv4_udp_gtp_ipv4_network_5mb_pcap() -> None:
     """Test the eth_802.1q_ipv4_udp_gtp_ipv4_network_5MB.pcap file"""
     dirs = configure_dirs()
-    ddir = os.path.join(dirs["ddir"], "00_functional", "02_tunels")
-    odir = os.path.join(dirs["odir"], "00_functional", "02_tunels")
+    ddir = os.path.join(dirs["ddir"], "00_functional", "02_tunnels")
+    odir = os.path.join(dirs["odir"], "00_functional", "02_tunnels")
     input_file = os.path.join(
         ddir, "00_eth_802.1q_ipv4_udp_gtp_ipv4_network_5MB.pcap.gz"
     )
     generate_outputs(input_file, E2EConfig(), "Network", odir)
 
 
-# 02_tunels/01_eth_802.1q_ipv4_udp_gtp_ipv6_2MB.pcap
+# 02_tunnels/01_eth_802.1q_ipv4_udp_gtp_ipv6_2MB.pcap
 def test_eth_802_1q_ipv4_udp_gtp_ipv6_2mb_pcap() -> None:
     """Test the eth_802.1q_ipv4_udp_gtp_ipv6_2MB.pcap file"""
     dirs = configure_dirs()
-    ddir = os.path.join(dirs["ddir"], "00_functional", "02_tunels")
-    odir = os.path.join(dirs["odir"], "00_functional", "02_tunels")
+    ddir = os.path.join(dirs["ddir"], "00_functional", "02_tunnels")
+    odir = os.path.join(dirs["odir"], "00_functional", "02_tunnels")
     input_file = os.path.join(ddir, "01_eth_802.1q_ipv4_udp_gtp_ipv6_2MB.pcap.gz")
     generate_outputs(input_file, E2EConfig(), "Network", odir)
 
 
-# 02_tunels/02_eth_mpls_ipv4_udp_gtp_ipv4_5MB.pcap
+# 02_tunnels/02_eth_mpls_ipv4_udp_gtp_ipv4_5MB.pcap
 def test_eth_mpls_ipv4_udp_gtp_ipv4_5mb_pcap() -> None:
     """Test the eth_mpls_ipv4_udp_gtp_ipv4_5MB.pcap file"""
     dirs = configure_dirs()
-    ddir = os.path.join(dirs["ddir"], "00_functional", "02_tunels")
-    odir = os.path.join(dirs["odir"], "00_functional", "02_tunels")
+    ddir = os.path.join(dirs["ddir"], "00_functional", "02_tunnels")
+    odir = os.path.join(dirs["odir"], "00_functional", "02_tunnels")
     input_file = os.path.join(ddir, "02_eth_mpls_ipv4_udp_gtp_ipv4_5MB.pcap.gz")
     generate_outputs(input_file, E2EConfig(), "Network", odir)
 
 
-# 02_tunels/03_null_ipv4_udp_gtp_ipv4_udp_vxlan_eth_ipv4_2MB.pcap
+# 02_tunnels/03_null_ipv4_udp_gtp_ipv4_udp_vxlan_eth_ipv4_2MB.pcap
 def test_null_ipv4_udp_gtp_ipv4_udp_vxlan_eth_ipv4_2mb_pcap() -> None:
     """Test the null_ipv4_udp_gtp_ipv4_udp_vxlan_eth_ipv4_2MB.pcap file"""
     dirs = configure_dirs()
-    ddir = os.path.join(dirs["ddir"], "00_functional", "02_tunels")
-    odir = os.path.join(dirs["odir"], "00_functional", "02_tunels")
+    ddir = os.path.join(dirs["ddir"], "00_functional", "02_tunnels")
+    odir = os.path.join(dirs["odir"], "00_functional", "02_tunnels")
     input_file = os.path.join(
         ddir, "03_null_ipv4_udp_gtp_ipv4_udp_vxlan_eth_ipv4_2MB.pcap.gz"
     )

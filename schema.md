@@ -29,7 +29,7 @@ These fields have the outer link layer information normally associated with the 
 | **eth_dst**| category |
 | **eth_vlan_tags**| string |
 | **eth_mpls_labels**| string |
-| **tunel**| string |
+| **tunnel**| string |
 
 ## Inner Network Layer Information
 

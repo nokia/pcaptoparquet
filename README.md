@@ -8,7 +8,7 @@ To install the package, run the following commands:
 
 ```sh
 python -m venv <your_venv>
-source <your_venv>/bin/activate   # In windows: .\<your_venv>\Scripts\activate 
+source <your_venv>/bin/activate   # In windows: .\<your_venv>\Scripts\activate
 python -m pip install --upgrade pip
 python -m pip install -e .
 python -m pip install black isort pyright flake8 Flake8-pyproject mypy tox coverage build twine
@@ -23,7 +23,7 @@ make venv
 ## Usage
 
 ### Command line Interface
-Just run: 
+Just run:
 
 ```sh
 pcaptoparquet -h
@@ -64,7 +64,6 @@ The `output` parameter specifies the directory where the output file will be sav
 This is a basic example of how to use the `pcaptoparquet` package. Depending on your needs, you might need to use additional methods or parameters.
 
 Refer to `pcaptoparquet_cli.py` for a more complex example of use. In particular, refer to extensibility options such as application protocol implementations and post-processing callbacks associated to E2EConfig class. Full examples included in tests folder (config and callbacks subfolders).
-
 
 ## Testing
 
@@ -126,7 +125,6 @@ or
 make check
 ```
 
-
 ## Contributing
 
 Contributions are welcome. Please follow these steps to contribute:
@@ -143,3 +141,7 @@ Please make sure to update tests as appropriate.
 
 ## License
 This project is licensed under the BSD-3-Clause License. See the `LICENSE` file for more details. Copyright 2025 Nokia.
+
+
+## DeepWiki
+Additional documentation can be found at [pcaptoparquet](https://deepwiki.com/nokia/pcaptoparquet).
