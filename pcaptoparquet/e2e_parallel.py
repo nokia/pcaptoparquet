@@ -213,7 +213,8 @@ class PCAPParallel:
         # return a raw file and hope it's not compressed'
         return open(filename, "rb")
 
-    def is_pcapng(self) -> bool:
+    @staticmethod
+    def check_pcapng(pcap_file: str) -> bool:
         """
         Determine if the file is a pcapng file
         """
@@ -223,14 +224,20 @@ class PCAPParallel:
         magic_ng = bytes([0x0A, 0x0D, 0x0D, 0x0A])
         max_len = len(magic_ng)
 
-        base_handle = self.open_maybe_compressed(self.pcap_file)
+        base_handle = PCAPParallel.open_maybe_compressed(pcap_file)
         file_start = base_handle.read(max_len)
         base_handle.close()
 
         if isinstance(file_start, bytes):
             return file_start.startswith(magic_ng)
 
-        return ".pcapng" in self.pcap_file
+        return ".pcapng" in pcap_file
+
+    def is_pcapng(self) -> bool:
+        """
+        Determine if the file is a pcapng file
+        """
+        return PCAPParallel.check_pcapng(self.pcap_file)
 
     def dpkt_count_bytes_cb(
         self,

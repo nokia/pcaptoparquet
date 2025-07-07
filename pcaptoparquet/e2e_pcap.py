@@ -406,7 +406,7 @@ class E2EPcap:
         if pcap_full_name is not None:
             pcapng = (
                 pcapng
-                or self.pcap_name.endswith(".pcapng")
+                or PCAPParallel.check_pcapng(self.pcap_name)
                 or ".pcapng." in self.pcap_name
             )
             # This handles compressed files...
@@ -428,6 +428,7 @@ class E2EPcap:
 
         # Parallel processing of the PCAP file
         # Only parallelize if the file is larger than a certain size.
+        self.ps = None
         if pcap_full_name is not None:
             self.file_size = os.path.getsize(self.pcap_name)
             if not isinstance(self.file, io.BufferedReader):
@@ -437,7 +438,6 @@ class E2EPcap:
             # Standard input does not have a size
             self.file_size = 0
 
-        self.ps = None
         if parallel and pcap_full_name and self.file_size > 500_000:  # 500KB
             # Only parallelize if the file is larger than
             # a certain size and the format is parquet.
@@ -465,7 +465,7 @@ class E2EPcap:
         """
         Closes the PCAP file when the object is destroyed.
         """
-        if self.ps is None:
+        if not hasattr(self, "ps") or self.ps is None:
             self.file.close()
 
     @staticmethod
