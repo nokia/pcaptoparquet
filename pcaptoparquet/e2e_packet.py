@@ -142,11 +142,6 @@ class E2EPacket:
         "transport_pkn": "UInt64",
         # Application Layer Fields and types
         "e2e_sni": "string",
-        "e2e_link": "string",
-        "e2e_ip_client": "category",
-        "e2e_ip_server": "category",
-        "e2e_ip_pair": "string",
-        "e2e_stream": "string",
         "app_type": "category",
         "app_session": "category",
         "app_seq": "UInt64",
@@ -761,67 +756,6 @@ class E2EPacket:
 
         return transport.data
 
-    def calculate_e2e_fields(self) -> None:
-        """
-        Calculate the end-to-end fields of a packet.
-        """
-        # E2E Link
-        if self.eth_src is not None and self.eth_dst is not None:
-            if self.eth_src < self.eth_dst:
-                self.e2e_link = str(self.eth_src) + "_" + str(self.eth_dst)
-            else:
-                self.e2e_link = str(self.eth_dst) + "_" + str(self.eth_src)
-
-        # E2E IP Pair
-        if self.ip_src < self.ip_dst:
-            self.e2e_ip_pair = str(self.ip_src) + "_" + str(self.ip_dst)
-        else:
-            self.e2e_ip_pair = str(self.ip_dst) + "_" + str(self.ip_src)
-
-        # E2E IP Client
-        # E2E IP Server
-        # E2E Stream
-        if self.transport_src_port is not None and self.transport_dst_port is not None:
-            if self.transport_src_port < 1024 and self.transport_dst_port > 1023:
-                self.ip_client = self.ip_dst
-                self.ip_server = self.ip_src
-
-            if self.transport_src_port > 1023 and self.transport_dst_port < 1024:
-                self.ip_client = self.ip_src
-                self.ip_server = self.ip_dst
-
-            if self.ip_src < self.ip_dst:
-                self.stream = (
-                    str(self.transport_type).lower()
-                    + "_"
-                    + str(self.ip_src)
-                    + "_"
-                    + str(self.transport_src_port)
-                    + "_"
-                    + str(self.ip_dst)
-                    + "_"
-                    + str(self.transport_dst_port)
-                )
-            else:
-                self.stream = (
-                    str(self.transport_type).lower()
-                    + "_"
-                    + str(self.ip_dst)
-                    + "_"
-                    + str(self.transport_dst_port)
-                    + "_"
-                    + str(self.ip_src)
-                    + "_"
-                    + str(self.transport_src_port)
-                )
-
-        else:
-            self.stream = str(self.transport_type).lower() + "_" + self.e2e_ip_pair
-
-        # Add CID to stream if it exists
-        if self.transport_cid is not None:
-            self.stream = self.stream + "_" + str(self.transport_cid)
-
     def __init__(
         self,
         num: int,
@@ -891,8 +825,6 @@ class E2EPacket:
             # SCTP...
             if isinstance(transport, dpkt.sctp.SCTP):
                 app = self.decode_sctp_header(transport)
-
-            self.calculate_e2e_fields()
 
             # Session and Applications Decoding...
             self.app_type = None

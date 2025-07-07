@@ -719,6 +719,22 @@ def test_basic_input_pcap_tag_no_key() -> None:
 #       8. "app_seq",
 #       9. "app_request",
 #      10. "app_response"
+def test_basic_input_pcap_e2e_cb() -> None:
+    """
+    Run a basic pcap file processing with callback 01_callback_filter_icmp.py.
+    """
+    e2e_cb = os.path.join("tests", "callbacks", "00_callback_calculate_e2e.py")
+    run_basic_input(
+        out=OutInfo(ext=".txt"),
+        options=f"-f txt -c {e2e_cb}",
+        suffix=SuffixInfo(option="_e2e_cb"),
+    )
+    output_file = os.path.join("tests", "out", "99_others", "example_e2e_cb.txt")
+    check_txt_file(output_file, check_col=True, num_lines="22223")
+    # check_column_values(output_file, "transport_type", "ICMP", pos=5)
+    # check_column_values(output_file, "app_type", "PING", pos=6)
+
+
 def test_basic_input_pcap_one_cb() -> None:
     """
     Run a basic pcap file processing with callback 01_callback_filter_icmp.py.
@@ -767,7 +783,7 @@ def test_basic_input_pcap_config() -> None:
     output_file = os.path.join("tests", "out", "99_others", "example_cfg.txt")
     check_txt_file(output_file, check_col=True, num_lines="3")
     check_column_values(output_file, "transport_type", "UDP", pos=24)
-    check_column_values(output_file, "app_type", "TWAMP", pos=63)
+    check_column_values(output_file, "app_type", "TWAMP", pos=58)
 
 
 if __name__ == "__main__":
