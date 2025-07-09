@@ -13,10 +13,10 @@ E2ETunnel represents an end-to-end tunnel with the following attributes:
 - IP ID
 - IP TTL
 
-E2ETunnelList represents a list of E2ETunnel objects. It takes an outer IP packet as input
-and extracts the tunneled packets from it. The tunneled packets can be of two types:
-GTP-U or VxLAN. The E2ETunnelList class provides methods to convert the list of tunneled
-packets to JSON format.
+E2ETunnelList represents a list of E2ETunnel objects. It takes an outer IP packet as
+input and extracts the tunneled packets from it. The tunneled packets can be of two
+types: GTP-U or VxLAN. The E2ETunnelList class provides methods to convert the list
+of tunneled packets to JSON format.
 
 Example usage:
     outer_ip = dpkt.ip.IP(...)
