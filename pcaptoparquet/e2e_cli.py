@@ -165,6 +165,10 @@ class E2ECli:
             else:
                 self.args.callback = callbackpath
 
+        self.e2e_config = E2EConfig(
+            configpath=self.args.config, callbackpath=self.args.callback
+        )
+
     def __init__(
         self,
         add_argument_cb: Callable[[Any], Any],
