@@ -152,6 +152,19 @@ class E2ECli:
 
         return parser
 
+    def add_callback(self, callbackpath: Optional[str] = None) -> None:
+        """
+        Add callback function to the argument parser.
+        This function is used to add a callback function for post-processing.
+        If the callback path is provided, it will be added to the argument
+        parser.
+        """
+        if callbackpath:
+            if self.args.callback:
+                self.args.callback = self.args.callback + ":" + callbackpath
+            else:
+                self.args.callback = callbackpath
+
     def __init__(
         self,
         add_argument_cb: Callable[[Any], Any],
