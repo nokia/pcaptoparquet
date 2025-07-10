@@ -41,6 +41,34 @@ from .e2e_parallel import PCAPParallel
 warnings.simplefilter("ignore", category=CategoricalRemappingWarning)
 
 
+def process_partial_pcap(
+    file_handle: Any, params: Optional[dict[str, Any]] = None
+) -> io.BytesIO:
+    """
+    Process a partial PCAP file.
+    This is a wrapper around process_pcap_packet that reads the PCAP file in chunks.
+    """
+    return io.BytesIO(
+        E2EPcap.process_pcap_common(
+            pcap=dpkt.pcap.Reader(file_handle), params=params
+        ).serialize()
+    )
+
+
+def process_partial_pcapng(
+    file_handle: Any, params: Optional[dict[str, Any]] = None
+) -> io.BytesIO:
+    """
+    Process a partial PCAP file.
+    This is a wrapper around process_pcap_packet that reads the PCAP file in chunks.
+    """
+    return io.BytesIO(
+        E2EPcap.process_pcap_common(
+            pcap=dpkt.pcapng.Reader(file_handle), params=params
+        ).serialize()
+    )
+
+
 # Utility class to encode complex objects to JSON
 class ComplexEncoder(json.JSONEncoder):
     """
@@ -202,7 +230,17 @@ class E2EPcap:
         else:
             pcap_dtypes = params["pcap_dtypes"]
             encapsulation = params["encapsulation"]
-            transport_port_cb = params["transport_port_cb"]
+
+            if params["transport_port_cb"] is None:
+                # If transport_port_cb is None, use the default from E2EConfig
+                # This is needed for parallel processing
+                transport_port_cb = E2EConfig(
+                    configpath=params["configpath"]
+                ).get_transport_port_cb()
+            else:
+                # Otherwise, use the provided transport_port_cb
+                transport_port_cb = params["transport_port_cb"]
+
             meta_values = params["meta_values"]
             outformat = params["outformat"]
             file_handle = params["file_handle"]
@@ -289,34 +327,6 @@ class E2EPcap:
                 print("]}", file=file_handle)
 
         return pl_pcaparquet
-
-    @staticmethod
-    def process_partial_pcap(
-        file_handle: Any, params: Optional[dict[str, Any]] = None
-    ) -> io.BytesIO:
-        """
-        Process a partial PCAP file.
-        This is a wrapper around process_pcap_packet that reads the PCAP file in chunks.
-        """
-        return io.BytesIO(
-            E2EPcap.process_pcap_common(
-                pcap=dpkt.pcap.Reader(file_handle), params=params
-            ).serialize()
-        )
-
-    @staticmethod
-    def process_partial_pcapng(
-        file_handle: Any, params: Optional[dict[str, Any]] = None
-    ) -> io.BytesIO:
-        """
-        Process a partial PCAP file.
-        This is a wrapper around process_pcap_packet that reads the PCAP file in chunks.
-        """
-        return io.BytesIO(
-            E2EPcap.process_pcap_common(
-                pcap=dpkt.pcapng.Reader(file_handle), params=params
-            ).serialize()
-        )
 
     def add_tags_to_user_meta(self, tags: dict[str, str]) -> None:
         """
@@ -438,25 +448,36 @@ class E2EPcap:
             # Standard input does not have a size
             self.file_size = 0
 
+        if config is None:
+            config = E2EConfig()
+
         if parallel and pcap_full_name and self.file_size > 500_000:  # 500KB
             # Only parallelize if the file is larger than
             # a certain size and the format is parquet.
             if pcapng:
                 self.ps = PCAPParallel(
                     pcap_full_name,
-                    callback=E2EPcap.process_partial_pcapng,
+                    callback=process_partial_pcapng,
                 )
             else:
                 self.ps = PCAPParallel(
                     pcap_full_name,
-                    callback=E2EPcap.process_partial_pcap,
+                    callback=process_partial_pcap,
                 )
 
-        if config is None:
-            config = E2EConfig()
+            # Save config path for multi-processing
+            self.configpath = config.configpath
 
-        # Protocol configurations
-        self.transport_port_cb = config.get_transport_port_cb()
+            # Protocol configurations
+            self.transport_port_cb = None
+
+        else:
+
+            # Save config path for multi-processing
+            self.configpath = None
+
+            # Protocol configurations
+            self.transport_port_cb = config.get_transport_port_cb()
 
         # Post-processing Callbacks
         self.post_callbacks = config.get_post_callbacks()
@@ -623,7 +644,8 @@ class E2EPcap:
             partial_results = self.ps.split(
                 params={
                     "encapsulation": self.encapsulation,
-                    "transport_port_cb": self.transport_port_cb,
+                    "configpath": self.configpath,
+                    "transport_port_cb": None,
                     "meta_values": meta_values,
                     "pcap_dtypes": pcap_dtypes,
                     "outformat": outformat,
@@ -673,6 +695,7 @@ class E2EPcap:
                 pcap=self.pcap,
                 params={
                     "encapsulation": self.encapsulation,
+                    "configpath": None,
                     "transport_port_cb": self.transport_port_cb,
                     "meta_values": meta_values,
                     "pcap_dtypes": pcap_dtypes,

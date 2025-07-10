@@ -209,6 +209,8 @@ class E2EConfig:
         """
         Constructor for the E2EConfig class.
         """
+        self.configpath = configpath
+
         if not transportport_to_protocol:
             self.transportport_to_protocol = load_mapping_from_file(configpath)
         else:
