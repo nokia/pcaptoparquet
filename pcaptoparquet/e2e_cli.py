@@ -174,13 +174,20 @@ class E2ECli:
         add_argument_cb: Callable[[Any], Any],
         configpath: Optional[str] = None,
         callbackpath: Optional[str] = None,
+        inputs: Optional[list[str]] = None,
     ) -> None:
         """
         Initialize the argument parser
         Returns:
             parser: ArgumentParser object
         """
-        self.args = add_argument_cb(E2ECli.init_parser()).parse_args()
+        if inputs is None:
+            # If no inputs are provided, we use the command line argument
+            self.args = add_argument_cb(E2ECli.init_parser()).parse_args()
+        else:
+            # If inputs are provided, we use them directly
+            self.args = add_argument_cb(E2ECli.init_parser()).parse_args(inputs)
+
         if not self.args.config:
             self.args.config = configpath
 
