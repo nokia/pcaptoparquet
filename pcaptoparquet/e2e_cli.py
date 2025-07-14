@@ -65,9 +65,7 @@ class E2ECli:
     """
 
     @staticmethod
-    def init_parser(
-        version: Optional[str] = None
-    ) -> argparse.ArgumentParser:
+    def init_parser(version: Optional[str] = None) -> argparse.ArgumentParser:
         """
         Initialize the argument parser
         Returns:
