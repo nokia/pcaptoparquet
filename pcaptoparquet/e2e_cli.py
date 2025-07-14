@@ -65,18 +65,24 @@ class E2ECli:
     """
 
     @staticmethod
-    def init_parser() -> argparse.ArgumentParser:
+    def init_parser(
+        version: Optional[str] = None
+    ) -> argparse.ArgumentParser:
         """
         Initialize the argument parser
         Returns:
             parser: ArgumentParser object
         """
         parser = argparse.ArgumentParser()
+
+        if version is None:
+            version = importlib.metadata.version("pcaptoparquet")
+
         parser.add_argument(
             "-v",
             "--version",
             action="version",
-            version=importlib.metadata.version("pcaptoparquet"),
+            version=version,
         )
         parser.add_argument(
             "-i",
@@ -175,6 +181,7 @@ class E2ECli:
         configpath: Optional[str] = None,
         callbackpath: Optional[str] = None,
         inputs: Optional[list[str]] = None,
+        version: Optional[str] = None,
     ) -> None:
         """
         Initialize the argument parser
@@ -183,10 +190,10 @@ class E2ECli:
         """
         if inputs is None:
             # If no inputs are provided, we use the command line argument
-            self.args = add_argument_cb(E2ECli.init_parser()).parse_args()
+            self.args = add_argument_cb(E2ECli.init_parser(version)).parse_args()
         else:
             # If inputs are provided, we use them directly
-            self.args = add_argument_cb(E2ECli.init_parser()).parse_args(inputs)
+            self.args = add_argument_cb(E2ECli.init_parser(version)).parse_args(inputs)
 
         if not self.args.config:
             self.args.config = configpath
