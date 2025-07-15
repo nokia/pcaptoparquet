@@ -98,6 +98,13 @@ class E2EPcap:
     _common_pcap_meta = {"encapsulation": "category", "snaplen": "UInt32"}
 
     @staticmethod
+    def get_separator() -> str:
+        """
+        Returns the separator used in the output files.
+        """
+        return E2EPacket.SEPARATOR
+
+    @staticmethod
     def process_pcap_packet(
         num: int,
         timestamp: float,
