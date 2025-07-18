@@ -11,18 +11,26 @@ from .e2e_cli import E2ECli
 from .e2e_config import E2EConfig
 from .e2e_pcap import E2EPcap
 
+PACKAGE_NAME = "pcaptoparquet"
+
 try:
-    __version__ = importlib.metadata.version("pcaptoparquet")
+    __version__ = importlib.metadata.version(PACKAGE_NAME)
 except KeyError:
     __version__ = "unknown"
 
 try:
-    __author__ = importlib.metadata.metadata("pcaptoparquet")["Author"]
+    if "Author" in importlib.metadata.metadata(PACKAGE_NAME):
+        __author__ = importlib.metadata.metadata(PACKAGE_NAME)["Author"]
+    else:
+        __author__ = "Pablo Rojo"
 except KeyError:
     __author__ = "unknown"
 
 try:
-    __email__ = importlib.metadata.metadata("pcaptoparquet")["Author-email"]
+    if "Author-email" in importlib.metadata.metadata(PACKAGE_NAME):
+        __email__ = importlib.metadata.metadata(PACKAGE_NAME)["Author-email"]
+    else:
+        __email__ = "pablo.rojo@nokia.com"
 except KeyError:
     __email__ = "unknown"
 
