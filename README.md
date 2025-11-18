@@ -4,34 +4,34 @@ This is a package for converting pcap files primarily to parquet format. CSV and
 
 ## Installation
 
-To install the package, run the following commands:
+To install the package, run the following command:
+
+```sh
+pip install pcaptoparquet
+```
+
+Or with a virtual environment:
 
 ```sh
 python -m venv <your_venv>
 source <your_venv>/bin/activate   # In windows: .\<your_venv>\Scripts\activate
 python -m pip install --upgrade pip
-python -m pip install -e .
-python -m pip install black isort pyright flake8 Flake8-pyproject mypy tox coverage build twine
-```
-
-or
-
-```sh
-make venv
+python -m pip install pcaptoparquet
 ```
 
 ## Usage
 
-### Command line Interface
-Just run:
+### Command Line Interface
+
+To see all available options:
 
 ```sh
 pcaptoparquet -h
 ```
 
-**Note 1**: Portable executable can be created with pyinstaller but this executable has not been fully tested. Just check Makefile for more information.
+**Note 1**: Portable executable can be created with pyinstaller but this executable has not been fully tested. Check the Makefile for more information.
 
-**Note 2**: CLI interface was not fully tested in windows environment. Unit testing is only intrumented for linux.
+**Note 2**: CLI interface was not fully tested in Windows environment. Unit testing is only instrumented for Linux.
 
 ### Programming Interface
 
@@ -65,23 +65,45 @@ This is a basic example of how to use the `pcaptoparquet` package. Depending on 
 
 Refer to `pcaptoparquet_cli.py` for a more complex example of use. In particular, refer to extensibility options such as application protocol implementations and post-processing callbacks associated to E2EConfig class. Full examples included in tests folder (config and callbacks subfolders).
 
-## Testing
+## Contributing
+
+Contributions are welcome. Please follow these steps to contribute:
+
+1. Fork the repository.
+2. Create a new branch (`git checkout -b feature-branch`).
+3. Make your changes.
+4. Run the tests and code quality checks to ensure everything works correctly.
+5. Commit your changes (`git commit -am 'Add new feature'`).
+6. Push to the branch (`git push origin feature-branch`).
+7. Create a new Pull Request.
+
+Please make sure to update tests as appropriate.
+
+### Development Installation
+
+After cloning the repository, you can set up your development environment:
+
+```sh
+python -m venv <your_venv>
+source <your_venv>/bin/activate   # In windows: .\<your_venv>\Scripts\activate
+python -m pip install --upgrade pip
+python -m pip install -e .
+python -m pip install black isort pyright flake8 Flake8-pyproject mypy tox coverage build twine
+```
+
+or
+
+```sh
+make venv
+```
+
+### Testing
 
 The `pcaptoparquet` package includes a suite of tests to ensure its functionality. These tests are located in the `tests` directory.
 
 To run the tests, you'll need `tox`, which is a tool for automating testing in multiple Python environments.
 
-Here's how you can run the tests with `tox`:
-
-1. If you haven't already, install `tox` with the following command:
-
-```bash
-pip install tox
-```
-
-2. Navigate to the root directory of the `pcaptoparquet` project.
-
-3. Run the tests with the following command:
+Here's how you can run the tests:
 
 ```bash
 tox
@@ -90,16 +112,20 @@ tox
 or
 
 ```sh
-make check
+make test
 ```
 
 This command will run all the tests in the `tests` directory and display the results in the terminal.
 
 If you make changes to the `pcaptoparquet` code, please make sure to run the tests and ensure they all pass before submitting a pull request.
 
-Coverage is also available but only informational for now.
+Coverage is also available but only informational for now:
 
-## Code Quality Checks
+```sh
+make coverage
+```
+
+### Code Quality Checks
 
 The `pcaptoparquet` project uses several tools to ensure code quality:
 
@@ -125,19 +151,11 @@ or
 make check
 ```
 
-## Contributing
+To automatically fix formatting issues:
 
-Contributions are welcome. Please follow these steps to contribute:
-
-1. Fork the repository.
-2. Create a new branch (`git checkout -b feature-branch`).
-3. Make your changes.
-4. Run the tests and code quality checks to ensure everything works correctly.
-5. Commit your changes (`git commit -am 'Add new feature'`).
-6. Push to the branch (`git push origin feature-branch`).
-7. Create a new Pull Request.
-
-Please make sure to update tests as appropriate.
+```sh
+make fix
+```
 
 ## License
 This project is licensed under the BSD-3-Clause License. See the `LICENSE` file for more details. Copyright 2025 Nokia.
