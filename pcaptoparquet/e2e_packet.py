@@ -159,7 +159,13 @@ class E2EPacket:
     @classmethod
     def validate_str(cls, value: str) -> str:
         """
-        Validate a string value.
+        Validate a string value by replacing the separator with its hex representation.
+
+        Args:
+            value (str): The string value to validate.
+
+        Returns:
+            str: The validated string.
         """
         return value.replace(cls.SEPARATOR, cls.HEX_SEPARATOR)
 
@@ -167,6 +173,13 @@ class E2EPacket:
     def header(cls, meta_list: tuple[dict[str, str], dict[str, str]] = ({}, {})) -> str:
         """
         Returns the header of the packet as a string.
+
+        Args:
+            meta_list (tuple, optional): A tuple containing user metadata and
+                PCAP metadata. Defaults to ({}, {}).
+
+        Returns:
+            str: The header string.
         """
         hdrmeta = list(cls._prefix_meta.keys())
         for meta in meta_list:
@@ -183,6 +196,13 @@ class E2EPacket:
     ) -> dict[str, str]:
         """
         Returns the dtypes of the packet as a dictionary.
+
+        Args:
+            meta_list (tuple, optional): A tuple containing user metadata and
+                PCAP metadata. Defaults to ({}, {}).
+
+        Returns:
+            dict[str, str]: A dictionary mapping field names to their data types.
         """
         dtypes = {}
         for field_name, field_type in cls._prefix_meta.items():
@@ -196,7 +216,13 @@ class E2EPacket:
 
     def __str__(self) -> str:
         """
-        Returns the packet as a string.
+        Returns the packet as a string representation.
+
+        Returns:
+            str: The string representation of the packet.
+
+        Raises:
+            ValueError: If the prefix metadata is unknown.
         """
         # This is hardcoded...
         if (
@@ -225,14 +251,23 @@ class E2EPacket:
 
     def get_not_decoded_data(self) -> Any:
         """
-        Returns the not decoded data.
+        Returns the data that was not decoded.
+
+        Returns:
+            Any: The not decoded data.
         """
         return self._not_decoded_data
 
     @staticmethod
     def get_obj_list(listobj: list[Any]) -> list[Any]:
         """
-        Returns the object list.
+        Convert a list of objects to a list of dictionaries or values.
+
+        Args:
+            listobj (list[Any]): The list of objects to convert.
+
+        Returns:
+            list[Any]: The converted list.
         """
         obj_list = []
         if isinstance(listobj[0], dpkt.ethernet.MPLSlabel):
@@ -264,7 +299,14 @@ class E2EPacket:
     @staticmethod
     def get_category_str_value(obj: Any, name: str) -> str:
         """
-        Returns the category string.
+        Get the string representation of a category value.
+
+        Args:
+            obj (Any): The object to convert.
+            name (str): The name of the field.
+
+        Returns:
+            str: The string representation.
         """
         if obj is not None:
             if isinstance(obj, list):
@@ -281,7 +323,14 @@ class E2EPacket:
     # def to_dict(self, dtypes: Optional[dict[str, str]] = None) -> dict[str, Any]:
     def to_dict(self, dtypes: dict[str, str]) -> dict[str, Any]:
         """
-        Returns the packet as a dictionary.
+        Convert the packet to a dictionary based on the provided data types.
+
+        Args:
+            dtypes (dict[str, str]): A dictionary mapping field names to their
+                data types.
+
+        Returns:
+            dict[str, Any]: The packet as a dictionary.
         """
         pkt_dict = dict[str, Any]()
         for field_name, field_type in dtypes.items():
@@ -311,7 +360,17 @@ class E2EPacket:
 
     def to_json(self, d_: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         """
-        Returns the packet as a JSON.
+        Convert the packet to a JSON-compatible dictionary.
+
+        Args:
+            d_ (dict[str, Any], optional): An existing dictionary to populate.
+                Defaults to None.
+
+        Returns:
+            dict[str, Any]: The JSON-compatible dictionary.
+
+        Raises:
+            ValueError: If the prefix metadata is unknown.
         """
         if d_ is None:
             d_ = {}
@@ -342,7 +401,7 @@ class E2EPacket:
 
     def create_empty_attr(self) -> None:
         """
-        Create empty attributes for all fields in the E2EPacket class.
+        Initialize all fields in the E2EPacket class with None.
         """
         for field_name, _ in self._decoder_meta.items():
             setattr(self, field_name, None)
@@ -351,13 +410,14 @@ class E2EPacket:
         self, eth: dpkt.ethernet.Ethernet
     ) -> Optional[Union[dpkt.ip.IP, dpkt.ip6.IP6]]:
         """
-        Decode an Ethernet packet.
+        Decode an Ethernet packet and extract relevant information.
 
         Args:
-            eth: The Ethernet packet.
+            eth (dpkt.ethernet.Ethernet): The Ethernet packet to decode.
 
         Returns:
-            The outer IP packet.
+            Optional[Union[dpkt.ip.IP, dpkt.ip6.IP6]]: The outer IP packet if found,
+                otherwise None.
         """
         # Source and Destination MAC addresses
         self.eth_src = mac_to_str(getattr(eth, "src"))
@@ -392,13 +452,14 @@ class E2EPacket:
         self, outerip: Union[dpkt.ip.IP, dpkt.ip6.IP6]
     ) -> Optional[Union[dpkt.ip.IP, dpkt.ip6.IP6]]:
         """
-        Decode the tunnels of a packet.
+        Decode tunnels within the outer IP packet.
 
         Args:
-            outerip: The outer IP packet.
+            outerip (Union[dpkt.ip.IP, dpkt.ip6.IP6]): The outer IP packet.
 
         Returns:
-            The inner IP packet.
+            Optional[Union[dpkt.ip.IP, dpkt.ip6.IP6]]: The inner IP packet if found,
+                otherwise None.
         """
         # Tunnel
 
@@ -421,7 +482,14 @@ class E2EPacket:
         self, esp: dpkt.esp.ESP
     ) -> Optional[Union[dpkt.tcp.TCP, dpkt.udp.UDP]]:
         """
-        Decode the transport layer of a packet.
+        Decode the ESP (Encapsulating Security Payload) packet.
+
+        Args:
+            esp (dpkt.esp.ESP): The ESP packet.
+
+        Returns:
+            Optional[Union[dpkt.tcp.TCP, dpkt.udp.UDP]]: The transport layer packet
+                if decoded, otherwise None.
         """
         transport = None
         self.esp_spi = getattr(esp, "spi")
@@ -474,13 +542,13 @@ class E2EPacket:
         self, innerip: Union[dpkt.ip.IP, dpkt.ip6.IP6]
     ) -> Optional[Any]:
         """
-        Decode the transport layer of a packet.
+        Decode the IP header and extract relevant information.
 
         Args:
-            innerip: The inner IP packet.
+            innerip (Union[dpkt.ip.IP, dpkt.ip6.IP6]): The inner IP packet.
 
         Returns:
-            IP data dpkt object.
+            Optional[Any]: The transport layer packet (dpkt object) if found.
         """
         # IP
         # - Version
@@ -515,13 +583,13 @@ class E2EPacket:
         self, transport: Union[dpkt.icmp.ICMP, dpkt.icmp6.ICMP6]
     ) -> Optional[Any]:
         """
-        Decode the transport layer of a packet as ICMP.
+        Decode the ICMP header.
 
         Args:
-            transport: ICMP packet.
+            transport (Union[dpkt.icmp.ICMP, dpkt.icmp6.ICMP6]): The ICMP packet.
 
         Returns:
-            ICMP data dpkt object.
+            Optional[Any]: The ICMP data.
         """
         # - Type
         if isinstance(transport, dpkt.icmp.ICMP):
@@ -546,7 +614,14 @@ class E2EPacket:
         Optional[int],
     ]:
         """
-        Decode the SACK option.
+        Decode the SACK (Selective Acknowledgment) option.
+
+        Args:
+            value (bytes): The SACK option value.
+
+        Returns:
+            tuple: A tuple containing the SACK blocks
+                (start1, end1, start2, end2, start3, end3).
         """
         try:
             sacks = struct.unpack("!IIIIII", value)
@@ -580,13 +655,13 @@ class E2EPacket:
 
     def decode_tcp_header(self, transport: dpkt.tcp.TCP) -> Optional[Any]:
         """
-        Decode the transport layer of a packet as TCP.
+        Decode the TCP header.
 
         Args:
-            transport: TCP packet.
+            transport (dpkt.tcp.TCP): The TCP packet.
 
         Returns:
-            TCP data dpkt object.
+            Optional[Any]: The TCP data.
         """
 
         # - Type
@@ -683,13 +758,13 @@ class E2EPacket:
 
     def decode_udp_header(self, transport: dpkt.udp.UDP) -> Optional[Any]:
         """
-        Decode the transport layer of a packet as UDP.
+        Decode the UDP header.
 
         Args:
-            transport: UDP packet.
+            transport (dpkt.udp.UDP): The UDP packet.
 
         Returns:
-            UDP data dpkt object.
+            Optional[Any]: The UDP data.
         """
         # - Type
         self.transport_type = "UDP"
@@ -710,13 +785,13 @@ class E2EPacket:
 
     def decode_sctp_header(self, transport: dpkt.sctp.SCTP) -> Optional[Any]:
         """
-        Decode the transport layer of a packet as SCTP.
+        Decode the SCTP header.
 
         Args:
-            transport: SCTP packet.
+            transport (dpkt.sctp.SCTP): The SCTP packet.
 
         Returns:
-            SCTP data dpkt object.
+            Optional[Any]: The SCTP data.
         """
         # - Type
         self.transport_type = "SCTP"

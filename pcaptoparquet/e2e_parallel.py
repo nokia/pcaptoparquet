@@ -15,7 +15,7 @@ import os
 from concurrent.futures import Future, ProcessPoolExecutor
 from math import ceil
 from struct import unpack as struct_unpack
-from typing import Any, List, Optional
+from typing import Any, Callable, List, Optional
 
 import dpkt
 import psutil
@@ -131,12 +131,17 @@ class PCAPParallel:
     Based on PCAPParallel class to provide a more specific implementation
     """
 
-    def __init__(self, pcap_file: str, callback: Any) -> None:
+    def __init__(self, pcap_file: str, callback: Callable[..., Any]) -> None:
         """
         Quickly reads a PCAP file and splits the contents.
         Each file is split into multiple io.BytesIO streams, which will
         result in loading the entire contents into memory.  Callbacks for
         each section will be executed in a separate process.
+
+        Args:
+            pcap_file (str): The path to the PCAP file.
+            callback (Callable[..., Any]): The callback function to execute
+                for each split.
         """
         self.pcap_file: str = pcap_file
         self.callback = callback
@@ -150,8 +155,8 @@ class PCAPParallel:
         self.processed_bytes: int = 0
         self.split_packets: int = 0
         self.split_sizes: List[int] = []
-        self.dpkt_data = None
-        self.our_data = None
+        self.dpkt_data: Optional[Any] = None
+        self.our_data: Optional[Any] = None
         self.results: List[Any] = []
         self.process_pool = ProcessPoolExecutor()
         self.spawned_processes: int = 0
@@ -277,7 +282,10 @@ class PCAPParallel:
         self.split_packets = int(len(self.unprocessed_bytes) / cores / mem_factor) + 1
 
         pkt = self.split_packets
-        pos_bytes = self.our_data.tell()  # type: ignore
+        if self.our_data:
+            pos_bytes = self.our_data.tell()
+        else:
+            raise ValueError("Failed to open PCAP file")
         while pkt < len(self.unprocessed_bytes):
             self.split_sizes.append(self.unprocessed_bytes[pkt] - pos_bytes)
             pos_bytes = self.unprocessed_bytes[pkt]
@@ -285,7 +293,8 @@ class PCAPParallel:
 
         self.split_sizes.append(self.unprocessed_bytes[-1] - pos_bytes)
 
-        self.dpkt_data.close()  # type: ignore
+        if self.dpkt_data:
+            self.dpkt_data.close()
 
         self.unprocessed_bytes.clear()
         gc.collect()
@@ -297,7 +306,8 @@ class PCAPParallel:
         self.buffer = bytes(self.header)
 
         # read from our files current position to where the dpkt reader is
-        self.buffer += self.our_data.read(bytes_to_read)  # type: ignore
+        if self.our_data:
+            self.buffer += self.our_data.read(bytes_to_read)
 
         self.spawned_processes += 1
 
@@ -322,13 +332,20 @@ class PCAPParallel:
             pcap_hdr = PcapngReader(hdr_data)  # Dummy Header Decoding
             hdr_data.close()
 
-            hdr_bytes = self.our_data.read(  # type: ignore
-                pcap_hdr.shb.len + pcap_hdr.idb.len
-            )
+            if self.our_data:
+                hdr_bytes = self.our_data.read(pcap_hdr.shb.len + pcap_hdr.idb.len)
+            else:
+                # This case should ideally not happen if open_maybe_compressed
+                # always returns a handle but adding it for type safety if
+                # self.our_data could theoretically be None
+                raise ValueError("Failed to open PCAPNG file for reading header")
         else:
-            hdr_bytes = self.our_data.read(  # type: ignore
-                getattr(dpkt.pcap.FileHdr, "__hdr_len__")
-            )
+            if self.our_data:
+                hdr_bytes = self.our_data.read(
+                    getattr(dpkt.pcap.FileHdr, "__hdr_len__")
+                )
+            else:
+                raise ValueError("Failed to open PCAP file for reading header")
 
         setattr(self, "header", hdr_bytes)
 
@@ -340,6 +357,7 @@ class PCAPParallel:
 
         self.process_pool.shutdown(wait=True, cancel_futures=False)
 
-        self.our_data.close()  # type: ignore
+        if self.our_data:
+            self.our_data.close()
 
         return self.results

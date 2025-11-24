@@ -26,7 +26,7 @@ import os
 import struct
 import sys
 import warnings
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 
 import dpkt
 import polars as pl
@@ -105,25 +105,14 @@ class E2EPcap:
         return E2EPacket.SEPARATOR
 
     @staticmethod
-    def process_pcap_packet(
-        num: int,
-        timestamp: float,
-        buf: bytes,
-        encapsulation: str,
-        transport_port_cb: dict[str, Any],
-        meta_values: Optional[Dict[Any, Any]] = None,
-    ) -> E2EPacket:
+    def _get_outer_ip_and_eth(
+        encapsulation: str, buf: bytes
+    ) -> Tuple[
+        Optional[dpkt.ethernet.Ethernet], Optional[Union[dpkt.ip.IP, dpkt.ip6.IP6]]
+    ]:
         """
-        Process a single PCAP packet.
+        Extract Ethernet and Outer IP packet based on encapsulation.
         """
-        if meta_values is None:
-            meta_values = {}
-
-        utc_date_time = datetime.datetime.fromtimestamp(
-            float(timestamp), datetime.timezone.utc
-        )
-
-        sll = None
         eth = None
         outerip = None
 
@@ -150,8 +139,31 @@ class E2EPcap:
                 elif dpkt.compat_ord(buf[0]) & 0xF0 == 0x60:
                     # IP version 6
                     outerip = dpkt.ip6.IP6(buf)
-        except Exception:  # pylint: disable=broad-except
+        except (dpkt.UnpackError, struct.error, IndexError):
             pass
+
+        return eth, outerip
+
+    @staticmethod
+    def process_pcap_packet(
+        num: int,
+        timestamp: float,
+        buf: bytes,
+        encapsulation: str,
+        transport_port_cb: dict[str, Any],
+        meta_values: Optional[Dict[Any, Any]] = None,
+    ) -> E2EPacket:
+        """
+        Process a single PCAP packet.
+        """
+        if meta_values is None:
+            meta_values = {}
+
+        utc_date_time = datetime.datetime.fromtimestamp(
+            float(timestamp), datetime.timezone.utc
+        )
+
+        eth, outerip = E2EPcap._get_outer_ip_and_eth(encapsulation, buf)
 
         if outerip is None and eth is None:
             raise ValueError("Unknown encapsulation type: " + str(encapsulation))
@@ -218,6 +230,68 @@ class E2EPcap:
         return pcap_dict_list
 
     @staticmethod
+    def _initialize_pcap_dict_list(pcap_dtypes: dict[str, str]) -> dict[str, Any]:
+        """
+        Initialize the dictionary list for Polars DataFrame.
+        """
+        pcap_dict_list: dict[str, Any] = {key: [] for key in pcap_dtypes}
+        pcap_dict_list["not_decoded_data"] = []
+        return pcap_dict_list
+
+    @staticmethod
+    def _process_and_append_packet(
+        num: int,
+        timestamp: float,
+        buf: bytes,
+        encapsulation: str,
+        transport_port_cb: dict[str, Any],
+        meta_values: dict[str, str],
+        pcap_dtypes: dict[str, str],
+        pcap_dict_list: dict[str, Any],
+    ) -> None:
+        """
+        Process a single packet and append it to the dictionary list.
+        """
+        try:
+            e2e_pkt = E2EPcap.process_pcap_packet(
+                num,
+                timestamp,
+                buf,
+                encapsulation,
+                transport_port_cb,
+                meta_values=meta_values,
+            )
+            new_row = e2e_pkt.to_dict(pcap_dtypes)
+            for key in pcap_dtypes:
+                pcap_dict_list[key].append(new_row[key])
+            pcap_dict_list["not_decoded_data"].append(e2e_pkt.get_not_decoded_data())
+        except (ValueError, struct.error, dpkt.UnpackError):
+            E2EPcap.add_error_to_dict_list(
+                pcap_dict_list, pcap_dtypes, num, "Error processing packet"
+            )
+
+    @staticmethod
+    def _print_packet(
+        e2e_pkt: E2EPacket, outformat: str, file_handle: Any, sep_: str
+    ) -> str:
+        """
+        Print the packet in the specified format.
+        """
+        if outformat == "txt":
+            print(
+                str(e2e_pkt),
+                file=file_handle,
+            )
+        elif outformat == "json":
+            print(
+                sep_  # Ugly hack to avoid the first comma
+                + json.dumps(e2e_pkt.to_json(), cls=ComplexEncoder),
+                file=file_handle,
+            )
+            return ","
+        return sep_
+
+    @staticmethod
     def process_pcap_common(
         pcap: Any, params: Optional[dict[str, Any]] = None
     ) -> pl.DataFrame:
@@ -257,12 +331,7 @@ class E2EPcap:
         if not use_polars and not file_handle:
             raise ValueError("File handle is required for non-polars output formats.")
 
-        pcap_dict_list: dict[str, Any] = {}
-
-        for key in pcap_dtypes:
-            pcap_dict_list[key] = []
-
-        pcap_dict_list["not_decoded_data"] = []
+        pcap_dict_list = E2EPcap._initialize_pcap_dict_list(pcap_dtypes)
 
         num = 0
         sep_ = ""
@@ -278,47 +347,33 @@ class E2EPcap:
                 continue
 
             if pktnum in (0, num):
-                try:
-                    e2e_pkt = E2EPcap.process_pcap_packet(
+                if use_polars:
+                    E2EPcap._process_and_append_packet(
                         num,
                         timestamp,
                         buf,
                         encapsulation,
                         transport_port_cb,
-                        meta_values=meta_values,
-                    )
-                except (ValueError, struct.error, dpkt.UnpackError):
-                    # Add empty values to the dictionary
-                    E2EPcap.add_error_to_dict_list(
-                        pcap_dict_list, pcap_dtypes, num, "Error processing packet"
-                    )
-                    continue
-
-                if use_polars:
-                    # Parquet or Polars
-                    new_row = e2e_pkt.to_dict(pcap_dtypes)  # Convert to dict
-
-                    for key in pcap_dtypes:
-                        pcap_dict_list[key].append(new_row[key])
-
-                    pcap_dict_list["not_decoded_data"].append(
-                        e2e_pkt.get_not_decoded_data()
+                        meta_values,
+                        pcap_dtypes,
+                        pcap_dict_list,
                     )
 
                 else:
-                    # Print the packet for non parquet formats
-                    if outformat == "txt":
-                        print(
-                            str(e2e_pkt),
-                            file=file_handle,
+                    try:
+                        e2e_pkt = E2EPcap.process_pcap_packet(
+                            num,
+                            timestamp,
+                            buf,
+                            encapsulation,
+                            transport_port_cb,
+                            meta_values=meta_values,
                         )
-                    elif outformat == "json":
-                        print(
-                            sep_  # Ugly hack to avoid the first comma
-                            + json.dumps(e2e_pkt.to_json(), cls=ComplexEncoder),
-                            file=file_handle,
+                        sep_ = E2EPcap._print_packet(
+                            e2e_pkt, outformat, file_handle, sep_
                         )
-                        sep_ = ","
+                    except (ValueError, struct.error, dpkt.UnpackError):
+                        pass
 
         if use_polars:
             # Convert dtypes based on pcap_dtypes
