@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pcaptoparquet"
-version = "0.1.20250609"
+version = "0.1.20251126"
 dependencies = [
     'dpkt',
     'cryptography',

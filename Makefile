@@ -51,7 +51,7 @@ standalone: venv
 install: build
 	$(PIP) install .
 
-publish: venv
+publish: build
 	$(PYTHON) -m twine upload dist/*
 
 clean: clean-venv clean-check clean-test clean-coverage clean-build clean-publish
