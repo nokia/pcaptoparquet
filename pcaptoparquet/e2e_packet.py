@@ -731,7 +731,7 @@ class E2EPacket:
 
             elif option[0] == dpkt.tcp.TCP_OPT_SACKOK:
                 # SACK permitted, RFC 2018
-                self.transport_sack_enabled = True
+                self.transport_sackok = True
 
             elif option[0] == dpkt.tcp.TCP_OPT_SACK:
                 # SACK, RFC 2018
@@ -903,6 +903,7 @@ class E2EPacket:
 
             # Session and Applications Decoding...
             self.app_type = None
+            self.app_session = None
             self.app_seq = None
             self.app_request = None
             self.app_response = None

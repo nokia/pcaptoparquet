@@ -40,4 +40,6 @@ __OLD__/
 */draft.*
 */column_reference.txt
 
-
+# Reserved for error testing not to be included in main repo
+test_errors.py
+99_errors/

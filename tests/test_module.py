@@ -9,18 +9,6 @@ from pcaptoparquet import E2EConfig
 from .test_utils import configure_dirs, generate_outputs
 
 
-# Test errors...
-def test_error() -> None:
-    """Test error cases..."""
-    dirs = configure_dirs()
-    ddir = os.path.join(dirs["ddir"], "99_error")
-    odir = os.path.join(dirs["odir"], "99_error")
-    input_file = os.path.join(ddir, "output_00000_20250718042658.pcap")
-    generate_outputs(
-        input_file, E2EConfig(), "Client", odir, formats=["parquet"], parallel=False
-    )
-
-
 # 00_file_formats/00_raw_ipv4_network_2MB.pcap
 def test_raw_ipv4_network_2mb_pcap() -> None:
     """Test the raw_ipv4_network_2MB.pcap file"""
