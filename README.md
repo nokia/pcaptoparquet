@@ -33,6 +33,8 @@ pcaptoparquet -h
 
 **Note 2**: CLI interface was not fully tested in Windows environment. Unit testing is only instrumented for Linux.
 
+**Note 3**: L2TP (v2/v3) and GRE tunnel unwrapping is experimental. GTP-U and VxLAN remain the supported tunnel types. L2TP/GRE is validated with synthetic unit tests, not production BRAS captures; cookie and payload heuristics may miss or mis-label sessions, and the `tunnel` field layout for these types may change.
+
 ### Programming Interface
 
 The `pcaptoparquet` package provides the `E2EPcap` class for converting pcap files to different formats. Here's how you can use it:

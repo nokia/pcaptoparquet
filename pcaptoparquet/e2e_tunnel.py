@@ -14,9 +14,9 @@ E2ETunnel represents an end-to-end tunnel with the following attributes:
 - IP TTL
 
 E2ETunnelList represents a list of E2ETunnel objects. It takes an outer IP packet as
-input and extracts the tunneled packets from it. The tunneled packets can be of two
-types: GTP-U or VxLAN. The E2ETunnelList class provides methods to convert the list
-of tunneled packets to JSON format.
+input and extracts the tunneled packets from it. GTP-U and VxLAN are supported.
+L2TPv2, L2TPv3, and GRE unwrapping are experimental. The E2ETunnelList class provides
+methods to convert the list of tunneled packets to JSON format.
 
 Example usage:
     outer_ip = dpkt.ip.IP(...)
@@ -49,10 +49,13 @@ Output:
 """
 
 import struct
-from typing import Any
+from typing import Any, Optional, Union
 
 import dpkt
 from dpkt.utils import inet_to_str
+
+_InnerIP = Union[dpkt.ip.IP, dpkt.ip6.IP6]
+_L2TPResult = tuple[str, int, int, Any]
 
 
 class E2ETunnel:
@@ -66,7 +69,26 @@ class E2ETunnel:
          - IP TTL
     """
 
+    type: str
+    id: int
+    src: str
+    dst: str
+    len: int
+    pkt_id: int
+    pkt_ttl: int
+    dscp: int
+    ecn: int
+
     def __init__(self, tunnel_info: dict[str, Any]) -> None:
+        self.type = ""
+        self.id = 0
+        self.src = ""
+        self.dst = ""
+        self.len = 0
+        self.pkt_id = 0
+        self.pkt_ttl = 0
+        self.dscp = 0
+        self.ecn = 0
         for attr in tunnel_info:
             if attr in [
                 "type",
@@ -102,9 +124,37 @@ class E2ETunnel:
 class E2ETunnelList:
     """
     Represents a list of E2ETunnel objects. It takes an outer IP packet as input
-    and extracts the tunneled packets from it. The tunneled packets can be of two types:
-    GTP-U or VxLAN.
+    and extracts the tunneled packets from it. GTP-U and VxLAN are supported.
+    L2TPv2, L2TPv3, and GRE unwrapping are experimental.
     """
+
+    UDP_PORT_GTP = 2152
+    UDP_PORT_VXLAN = 4789
+    UDP_PORT_L2TP = 1701
+    IP_PROTO_GRE = 47
+    IP_PROTO_L2TP = 115
+
+    L2TP_T_BIT = 0x8000
+    L2TP_L_BIT = 0x4000
+    L2TP_S_BIT = 0x0800
+    L2TP_O_BIT = 0x0200
+
+    GRE_C_BIT = 0x8000
+    GRE_R_BIT = 0x4000
+    GRE_K_BIT = 0x2000
+    GRE_S_BIT = 0x1000
+    GRE_A_BIT = 0x0080
+    GRE_VER_MASK = 0x0007
+
+    ETH_TYPE_IP = 0x0800
+    ETH_TYPE_IPV6 = 0x86DD
+    ETH_TYPE_TEB = 0x6558
+    ETH_TYPE_PPP = 0x880B
+    ETH_TYPE_ERSPAN = 0x88BE
+    GRE_PROTO_IPV4 = 0x0004
+    GRE_PROTO_IPV6 = 0x0029
+
+    _L2TP_MISS: _L2TPResult = ("", 0, -1, None)
 
     @staticmethod
     def decode_id(ipkt: dpkt.Packet) -> int:
@@ -185,6 +235,122 @@ class E2ETunnelList:
             except (AttributeError, KeyError):
                 ip_frag = False
         return ip_frag
+
+    @staticmethod
+    def _is_gre(data: Any) -> bool:
+        gre_mod = getattr(dpkt, "gre", None)
+        gre_cls = getattr(gre_mod, "GRE", None) if gre_mod is not None else None
+        return gre_cls is not None and isinstance(data, gre_cls)
+
+    @staticmethod
+    def _is_inner_ip(pkt: Any) -> bool:
+        return isinstance(pkt, (dpkt.ip.IP, dpkt.ip6.IP6))
+
+    @staticmethod
+    def _payload_bytes(data: Any) -> bytes:
+        if isinstance(data, (bytes, bytearray)):
+            return bytes(data)
+        try:
+            return bytes(data)
+        except (TypeError, ValueError):
+            return b""
+
+    @staticmethod
+    def _ip_proto(ipkt: dpkt.Packet) -> int:
+        if isinstance(ipkt, dpkt.ip.IP):
+            return int(getattr(ipkt, "p"))
+        try:
+            return int(getattr(ipkt, "p"))
+        except AttributeError:
+            try:
+                return int(getattr(ipkt, "nxt"))
+            except AttributeError:
+                return -1
+
+    @staticmethod
+    def _should_walk(ipkt: dpkt.Packet) -> bool:
+        data = getattr(ipkt, "data", None)
+        if isinstance(data, dpkt.udp.UDP):
+            return True
+        if E2ETunnelList._is_gre(data):
+            return True
+        proto = E2ETunnelList._ip_proto(ipkt)
+        return proto in (E2ETunnelList.IP_PROTO_GRE, E2ETunnelList.IP_PROTO_L2TP)
+
+    @staticmethod
+    def _inner_with_plen(
+        inner: Optional[_InnerIP], delta: int = 20
+    ) -> tuple[int, Optional[_InnerIP]]:
+        if inner is None:
+            return -1, None
+        plen = E2ETunnelList.decode_length(inner, delta)
+        if plen > 0:
+            return plen, inner
+        return -1, None
+
+    @staticmethod
+    def decode_raw_ip(buf: bytes) -> Optional[_InnerIP]:
+        """Parse a raw IPv4 or IPv6 datagram from buf."""
+        if not buf:
+            return None
+        ver = buf[0] >> 4
+        try:
+            if ver == 4:
+                return dpkt.ip.IP(buf)
+            if ver == 6:
+                return dpkt.ip6.IP6(buf)
+        except (dpkt.UnpackError, struct.error):
+            return None
+        return None
+
+    @staticmethod
+    def decode_ethernet_ip(buf: bytes) -> Optional[_InnerIP]:
+        """Parse Ethernet (and VLAN) until an inner IPv4/IPv6 packet is found."""
+        if not buf:
+            return None
+        try:
+            inner: Any = dpkt.ethernet.Ethernet(buf).data
+        except (dpkt.UnpackError, struct.error):
+            return None
+        while inner is not None and not E2ETunnelList._is_inner_ip(inner):
+            try:
+                inner = inner.data
+            except AttributeError:
+                return None
+        if E2ETunnelList._is_inner_ip(inner):
+            return inner
+        return None
+
+    @staticmethod
+    def decode_ppp_ip(buf: bytes) -> Optional[_InnerIP]:
+        """Parse PPP (optional HDLC) and return an inner IPv4/IPv6 packet."""
+        if not buf:
+            return None
+        offset = 0
+        if len(buf) >= 2 and buf[0] == 0xFF and buf[1] == 0x03:
+            offset = 2
+        if offset >= len(buf):
+            return None
+        if buf[offset] & 0x01:
+            proto = buf[offset]
+            offset += 1
+        else:
+            if offset + 2 > len(buf):
+                return None
+            proto = (buf[offset] << 8) | buf[offset + 1]
+            offset += 2
+        payload = buf[offset:]
+        if proto in (0x0021, 0x21):
+            try:
+                return dpkt.ip.IP(payload)
+            except (dpkt.UnpackError, struct.error):
+                return None
+        if proto in (0x0057, 0x57):
+            try:
+                return dpkt.ip6.IP6(payload)
+            except (dpkt.UnpackError, struct.error):
+                return None
+        return None
 
     @staticmethod
     def decode_gtp(buf: bytes) -> tuple[Any, Any, Any]:
@@ -271,91 +437,291 @@ class E2ETunnelList:
         """
         Decode VxLAN packet and extract the VNI and inner IP packet.
         """
-        if len(buf) < 4:
+        if len(buf) < 8:
             return 0, -1, None
 
         teid = struct.unpack("!I", buf[3:7])[0] & 0x00FFFFFF
-        plen = 0
-        try:
-            next_ip = dpkt.ethernet.Ethernet(buf[8:]).data
-        except dpkt.UnpackError:
-            next_ip = None
-            plen = -1
-
-        if next_ip:
-            plen = E2ETunnelList.decode_length(next_ip)
-
+        next_ip = E2ETunnelList.decode_ethernet_ip(buf[8:])
+        if next_ip is None:
+            return teid, -1, None
+        plen = E2ETunnelList.decode_length(next_ip)
         return teid, plen, next_ip
 
+    @staticmethod
+    def _l2tpv2_user_payload(buf: bytes, flags: int) -> Optional[tuple[int, bytes]]:
+        """Return (packed_id, payload) for an L2TPv2 data header, or None."""
+        offset = 2
+        msg_end = len(buf)
+        if flags & E2ETunnelList.L2TP_L_BIT:
+            if offset + 2 > len(buf):
+                return None
+            length = struct.unpack("!H", buf[offset : offset + 2])[0]
+            offset += 2
+            if length < offset + 4:
+                return None
+            msg_end = min(len(buf), length)
+        if offset + 4 > msg_end:
+            return None
+        tunnel_id, session_id = struct.unpack("!HH", buf[offset : offset + 4])
+        offset += 4
+        if flags & E2ETunnelList.L2TP_S_BIT:
+            if offset + 4 > msg_end:
+                return None
+            offset += 4
+        if flags & E2ETunnelList.L2TP_O_BIT:
+            if offset + 2 > msg_end:
+                return None
+            offset_size = struct.unpack("!H", buf[offset : offset + 2])[0]
+            offset += 2
+            if offset + offset_size > msg_end:
+                return None
+            offset += offset_size
+        packed_id = (tunnel_id << 16) | session_id
+        return packed_id, buf[offset:msg_end]
+
+    @staticmethod
+    def _payload_to_inner(buf: bytes) -> tuple[int, Optional[_InnerIP]]:
+        inner = E2ETunnelList.decode_ppp_ip(buf)
+        if inner is None:
+            inner = E2ETunnelList.decode_raw_ip(buf)
+        return E2ETunnelList._inner_with_plen(inner)
+
+    @staticmethod
+    def _l2tpv3_payload_to_inner(buf: bytes) -> tuple[int, Optional[_InnerIP]]:
+        inner = E2ETunnelList.decode_ppp_ip(buf)
+        if inner is None:
+            inner = E2ETunnelList.decode_ethernet_ip(buf)
+        if inner is None:
+            inner = E2ETunnelList.decode_raw_ip(buf)
+        return E2ETunnelList._inner_with_plen(inner)
+
+    @staticmethod
+    def decode_l2tpv3_data(buf: bytes) -> _L2TPResult:
+        """Decode L2TPv3 data (32-bit Session ID, optional cookie / L2 sublayer)."""
+        if len(buf) < 4:
+            return E2ETunnelList._L2TP_MISS
+        session_id = struct.unpack("!I", buf[0:4])[0]
+        if session_id == 0:
+            return E2ETunnelList._L2TP_MISS
+        for off in (4, 8, 12, 16):
+            if off >= len(buf):
+                break
+            plen, inner = E2ETunnelList._l2tpv3_payload_to_inner(buf[off:])
+            if plen > 0 and inner is not None:
+                return "L2TPv3", session_id, plen, inner
+        return "L2TPv3", session_id, -1, None
+
+    @staticmethod
+    def decode_l2tp(buf: bytes, over_ip: bool = False) -> _L2TPResult:
+        """
+        Experimental: decode L2TPv2 or L2TPv3 and extract the inner IP packet.
+
+        Returns (type, id, plen, inner_ip). plen < 0 means a miss.
+        """
+        if len(buf) < 2:
+            return E2ETunnelList._L2TP_MISS
+
+        try:
+            flags = struct.unpack("!H", buf[0:2])[0]
+        except struct.error:
+            return E2ETunnelList._L2TP_MISS
+        ver = flags & 0x000F
+        t_bit = bool(flags & E2ETunnelList.L2TP_T_BIT)
+
+        if over_ip:
+            if ver == 3 and t_bit:
+                return E2ETunnelList._L2TP_MISS
+            return E2ETunnelList.decode_l2tpv3_data(buf)
+
+        if ver == 3:
+            return E2ETunnelList._L2TP_MISS
+        if ver == 2:
+            if t_bit:
+                return E2ETunnelList._L2TP_MISS
+            parsed = E2ETunnelList._l2tpv2_user_payload(buf, flags)
+            if parsed is not None:
+                packed_id, payload = parsed
+                plen, inner = E2ETunnelList._payload_to_inner(payload)
+                if plen > 0 and inner is not None:
+                    return "L2TPv2", packed_id, plen, inner
+            return E2ETunnelList.decode_l2tpv3_data(buf)
+        return E2ETunnelList.decode_l2tpv3_data(buf)
+
+    @staticmethod
+    def decode_gre(buf: bytes) -> tuple[int, int, Any]:
+        """
+        Experimental: decode GRE v0 (RFC 2784/2890) or PPTP GRE v1 from raw bytes.
+
+        Returns (id, plen, inner_ip). plen < 0 means a miss.
+        """
+        if len(buf) < 4:
+            return 0, -1, None
+        try:
+            flags, proto = struct.unpack("!HH", buf[0:4])
+        except struct.error:
+            return 0, -1, None
+        ver = flags & E2ETunnelList.GRE_VER_MASK
+        if flags & E2ETunnelList.GRE_R_BIT:
+            return 0, -1, None
+
+        offset = 4
+        gre_id = 0
+        if ver == 1:
+            if offset + 4 > len(buf):
+                return 0, -1, None
+            _plen, call_id = struct.unpack("!HH", buf[offset : offset + 4])
+            gre_id = call_id
+            offset += 4
+            if flags & E2ETunnelList.GRE_S_BIT:
+                if offset + 4 > len(buf):
+                    return 0, -1, None
+                offset += 4
+            if flags & E2ETunnelList.GRE_A_BIT:
+                if offset + 4 > len(buf):
+                    return 0, -1, None
+                offset += 4
+            plen, inner = E2ETunnelList._inner_with_plen(
+                E2ETunnelList.decode_ppp_ip(buf[offset:])
+            )
+            if plen > 0 and inner is not None:
+                return gre_id, plen, inner
+            return gre_id, -1, None
+
+        if ver != 0:
+            return 0, -1, None
+
+        if flags & E2ETunnelList.GRE_C_BIT:
+            if offset + 4 > len(buf):
+                return 0, -1, None
+            offset += 4
+        if flags & E2ETunnelList.GRE_K_BIT:
+            if offset + 4 > len(buf):
+                return 0, -1, None
+            gre_id = struct.unpack("!I", buf[offset : offset + 4])[0]
+            offset += 4
+        if flags & E2ETunnelList.GRE_S_BIT:
+            if offset + 4 > len(buf):
+                return 0, -1, None
+            offset += 4
+
+        payload = buf[offset:]
+        inner = None
+        if proto in (
+            E2ETunnelList.ETH_TYPE_IP,
+            E2ETunnelList.ETH_TYPE_IPV6,
+            E2ETunnelList.GRE_PROTO_IPV4,
+            E2ETunnelList.GRE_PROTO_IPV6,
+        ):
+            inner = E2ETunnelList.decode_raw_ip(payload)
+        elif proto == E2ETunnelList.ETH_TYPE_TEB:
+            inner = E2ETunnelList.decode_ethernet_ip(payload)
+        elif proto == E2ETunnelList.ETH_TYPE_PPP:
+            inner = E2ETunnelList.decode_ppp_ip(payload)
+        else:
+            return gre_id, -1, None
+
+        plen, inner = E2ETunnelList._inner_with_plen(inner)
+        if plen > 0 and inner is not None:
+            return gre_id, plen, inner
+        return gre_id, -1, None
+
+    @staticmethod
+    def _next_tunnel(
+        ipkt: dpkt.Packet,
+    ) -> Optional[tuple[str, int, int, Any, bool]]:
+        data = getattr(ipkt, "data", None)
+        if isinstance(data, dpkt.udp.UDP):
+            sport = int(getattr(data, "sport"))
+            dport = int(getattr(data, "dport"))
+            payload = E2ETunnelList._payload_bytes(data.data)
+            if (
+                sport == E2ETunnelList.UDP_PORT_GTP
+                or dport == E2ETunnelList.UDP_PORT_GTP
+            ):
+                teid, plen, inner = E2ETunnelList.decode_gtp(payload)
+                return "GTP-U", teid, plen, inner, False
+            if (
+                sport == E2ETunnelList.UDP_PORT_VXLAN
+                or dport == E2ETunnelList.UDP_PORT_VXLAN
+            ):
+                teid, plen, inner = E2ETunnelList.decode_vxlan(payload)
+                return "VxLAN", teid, plen, inner, False
+            if (
+                sport == E2ETunnelList.UDP_PORT_L2TP
+                or dport == E2ETunnelList.UDP_PORT_L2TP
+            ):
+                ttype, tid, plen, inner = E2ETunnelList.decode_l2tp(
+                    payload, over_ip=False
+                )
+                return ttype, tid, plen, inner, True
+            return None
+
+        proto = E2ETunnelList._ip_proto(ipkt)
+        payload = E2ETunnelList._payload_bytes(data)
+        if proto == E2ETunnelList.IP_PROTO_L2TP:
+            ttype, tid, plen, inner = E2ETunnelList.decode_l2tp(payload, over_ip=True)
+            return ttype, tid, plen, inner, True
+        if proto == E2ETunnelList.IP_PROTO_GRE or E2ETunnelList._is_gre(data):
+            tid, plen, inner = E2ETunnelList.decode_gre(payload)
+            return "GRE", tid, plen, inner, True
+        return None
+
+    def _append_tunnel(
+        self,
+        ttype: str,
+        tid: int,
+        plen: int,
+        ipkt: dpkt.Packet,
+        length: int,
+    ) -> None:
+        ips = [
+            inet_to_str(getattr(ipkt, "src")),
+            inet_to_str(getattr(ipkt, "dst")),
+        ]
+        self.tunnels.append(
+            E2ETunnel(
+                {
+                    "type": ttype,
+                    "id": tid,
+                    "src": ips[0],
+                    "dst": ips[1],
+                    "len": length - plen,
+                    "pkt_id": E2ETunnelList.decode_id(ipkt),
+                    "pkt_ttl": E2ETunnelList.decode_ttl(ipkt),
+                    "dscp": E2ETunnelList.decode_dscp(ipkt),
+                    "ecn": E2ETunnelList.decode_ecn(ipkt),
+                }
+            )
+        )
+
     def __init__(self, outerip: dpkt.Packet) -> None:
-        _ip_ = outerip
-        _new_ip_ = outerip
-        self.tunnels = []
-        while _ip_ and isinstance(_ip_.data, dpkt.udp.UDP):
-            # Sorted list to have the unique ID regardless of
-            # the packet direction.
-            # Need to use getattr because dpkt properties are
-            # created dynamically. See __hdr__ in dpkt.ip.IP.
-            ips = [inet_to_str(getattr(_ip_, "src")), inet_to_str(getattr(_ip_, "dst"))]
-            pkt_id = E2ETunnelList.decode_id(_ip_)
-            pkt_ttl = E2ETunnelList.decode_ttl(_ip_)
+        _ip_: Optional[dpkt.Packet] = outerip
+        _new_ip_: Optional[dpkt.Packet] = outerip
+        self.tunnels: list[E2ETunnel] = []
+        self.ip: Optional[dpkt.Packet] = outerip
+        while _ip_ is not None and E2ETunnelList._should_walk(_ip_):
             length = E2ETunnelList.decode_length(_ip_)
-            dscp = E2ETunnelList.decode_dscp(_ip_)
-            ecn = E2ETunnelList.decode_ecn(_ip_)
-
-            udp = _ip_.data
-
-            # 2152	GTP user data messages (GTP-U)
-            if getattr(udp, "sport") == 2152 or getattr(udp, "dport") == 2152:
-                teid, plen, _ip_ = E2ETunnelList.decode_gtp(udp.data)
-                if not plen < 0:
-                    self.tunnels.append(
-                        E2ETunnel(
-                            {
-                                "type": "GTP-U",
-                                "id": teid,
-                                "src": ips[0],
-                                "dst": ips[1],
-                                "len": length - plen,
-                                "pkt_id": pkt_id,
-                                "pkt_ttl": pkt_ttl,
-                                "dscp": dscp,
-                                "ecn": ecn,
-                            }
-                        )
-                    )
-
-                if not plen > 0:  # No inner IP packet
-                    _new_ip_ = _ip_
-                    _ip_ = None
-
-            # 4789	Virtual eXtensible Local Area Network (VxLAN)
-            elif getattr(udp, "sport") == 4789 or getattr(udp, "dport") == 4789:
-                teid, plen, _ip_ = E2ETunnelList.decode_vxlan(udp.data)
-                if not plen < 0:
-                    self.tunnels.append(
-                        E2ETunnel(
-                            {
-                                "type": "VxLAN",
-                                "id": teid,
-                                "src": ips[0],
-                                "dst": ips[1],
-                                "len": length - plen,
-                                "pkt_id": pkt_id,
-                                "pkt_ttl": pkt_ttl,
-                                "dscp": dscp,
-                                "ecn": ecn,
-                            }
-                        )
-                    )
-
-                if not plen > 0:  # No inner IP packet
-                    _new_ip_ = _ip_
-                    _ip_ = None
-
-            else:
+            result = E2ETunnelList._next_tunnel(_ip_)
+            if result is None:
                 _new_ip_ = _ip_
                 _ip_ = None
+                break
+            ttype, tid, plen, inner, require_inner = result
+            if require_inner:
+                if plen > 0 and E2ETunnelList._is_inner_ip(inner):
+                    self._append_tunnel(ttype, tid, plen, _ip_, length)
+                    _ip_ = inner
+                else:
+                    _new_ip_ = _ip_
+                    _ip_ = None
+            else:
+                if not plen < 0:
+                    self._append_tunnel(ttype, tid, plen, _ip_, length)
+                if not plen > 0:
+                    _new_ip_ = inner
+                    _ip_ = None
+                else:
+                    _ip_ = inner
 
         if _ip_:
             self.ip = _ip_

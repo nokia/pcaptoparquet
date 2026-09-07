@@ -31,6 +31,8 @@ These fields have the outer link layer information normally associated with the 
 | **eth_mpls_labels**| string |
 | **tunnel**| string |
 
+The `tunnel` column records GTP-U and VxLAN when those encapsulations are present. **L2TPv2, L2TPv3, and GRE unwrapping are experimental**: they are covered by synthetic unit tests, use heuristics (for example L2TPv3 cookie offsets), and only commit a tunnel when an inner IP packet is found. Type strings may be `"L2TPv2"`, `"L2TPv3"`, or `"GRE"`. Behavior and coverage may change.
+
 ## Inner Network Layer Information
 
 These fields capture IPv4, IPv6, and ESP information for the inner protocols layer (IP layer closer to the actual application data):

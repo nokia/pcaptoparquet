@@ -24,6 +24,7 @@ Run the listed files (or narrower `-k` filters) for the area you changed. If mul
 |-------------------|-----------------|
 | `pcaptoparquet/e2e_quic.py` | `tests/test_quic_initial.py` |
 | `pcaptoparquet/e2e_packet.py` | `tests/test_unit.py` |
+| `pcaptoparquet/e2e_tunnel.py` | `tests/test_l2tp.py`, `tests/test_gre.py` (experimental L2TP/GRE), `tests/test_module.py` GTP/VxLAN cases |
 | `pcaptoparquet/e2e_ping.py`, `e2e_dns.py`, `e2e_http.py`, `e2e_https.py` | `tests/test_module.py` tests under `05_applications/` |
 | `pcaptoparquet/e2e_pcap.py`, `e2e_parallel.py`, `e2e_config.py` | `tests/test_module.py` (functional captures) |
 | `pcaptoparquet_cli.py`, `pcaptoparquet/e2e_cli.py` | `test_cli/test_cli.py` |
