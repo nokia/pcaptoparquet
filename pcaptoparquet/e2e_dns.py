@@ -4,6 +4,7 @@
 """
 DNS Application module for dpkt.
 """
+
 from typing import Any, Optional
 
 import dpkt

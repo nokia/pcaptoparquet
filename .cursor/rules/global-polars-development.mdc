@@ -1,0 +1,36 @@
+---
+description: Prefer Polars (vectorized expressions / lazy plans) for new tabular code; avoid pandas and row-wise Python
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Polars development
+
+## Default stack
+
+- **Use Polars** (`import polars as pl`) for new development that touches tabular data when the project already depends on Polars.
+- **Do not introduce pandas** for new core logic unless there is an unavoidable external API that requires it; if needed, convert at the boundary and keep Polars internally.
+
+## Prefer (vectorized / query engine)
+
+- **Expressions** — Build logic with `pl.col`, arithmetic and boolean combos on columns, `pl.when` / `then` / `otherwise`, `fill_null`, `cast`, string/temporal helpers, `coalesce`, `min_horizontal` / `max_horizontal` / `sum_horizontal` where appropriate.
+- **Structural ops** — `select`, `with_columns`, `filter`, `sort`, `unique`, `join` (with explicit keys and join strategy), `concat`, `explode` when reshaping.
+- **Grouped and window** — `group_by(...).agg(...)`, and `.over(...)` for per-partition rolling/cumulative logic instead of Python loops over groups.
+- **Lazy pipelines** — For large or multi-step work, prefer `pl.scan_parquet` / `scan_csv` and LazyFrames when the plan can stay deferred until `collect()`; use eager `read_*` when the whole frame is small or you need immediate materialization for a clear reason.
+
+## Avoid (performance traps)
+
+- **Row-wise Python in the hot path** — No `apply` with arbitrary Python per row, no `iter_rows()` / `to_dicts()` to drive computation, no NumPy object loops over millions of rows when an expression exists.
+- **Accidental materialization** — Avoid repeated `collect()` in lazy pipelines; avoid converting full frames to pandas “just to use” a familiar API.
+- **Unbounded strings everywhere** — Prefer sensible dtypes (`Int32`, `Float32`, categoricals/enums when cardinality is low) when it matches the domain and keeps memory predictable.
+
+## Style alignment
+
+- Match existing modules in the codebase: chain lazy steps where used, name intermediate columns clearly, keep `DataFrame`/`LazyFrame` types explicit in signatures where it helps callers.
+- When a single scalar or tiny helper is truly unavoidable, isolate it (small pure function, or map_elements on a narrow column with explicit return_dtype) and document why expressions were insufficient.
+
+## Quick checklist (before finishing a change)
+
+- [ ] Tabular logic is expressed as Polars expressions or lazy plans, not Python row iteration.
+- [ ] Grouped/window logic uses `group_by` / `.over`, not manual split-apply-combine in Python.
+- [ ] New dependencies are not added for dataframe features Polars already covers.

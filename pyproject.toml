@@ -32,6 +32,21 @@ Issues = "https://github.com/nokia/pcaptoparquet/issues"
 [project.scripts]
 pcaptoparquet = "pcaptoparquet_cli:main"
 
+[project.optional-dependencies]
+dev = [
+    "black==26.5.1",
+    "isort==9.0.1",
+    "pyright==1.1.411",
+    "ruff==0.16.6",
+    "mypy==2.3.1",
+    "tox==4.61.2",
+    "pytest==9.1.1",
+    "coverage==7.16.0",
+    "build==1.6.0",
+    "twine==7.0.0",
+    "pyinstaller==6.22.2",
+]
+
 [tool.setuptools]
 py-modules = ["pcaptoparquet_cli"]
 packages = ["pcaptoparquet"]
@@ -40,19 +55,21 @@ packages = ["pcaptoparquet"]
 envlist = ["py311"]
 
 [tool.tox.env.py311]
-deps = ["pytest"]
+deps = ["pytest==9.1.1"]
 commands = [
   ["pytest", "tests/"],
 ]
 
-[tool.flake8]
-exclude =['.git', '.tox', '.venv*', 'build', 'dist', '.eggs']
-ignore = ['E203', 'W503', 'E231', 'E241']
-per-file-ignores = [
-    '__init__.py:F403, F401',
-]
-max-line-length = 88
-count = true
+[tool.ruff]
+line-length = 88
+exclude = [".git", ".tox", ".venv*", "venv_build", "build", "dist", ".eggs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E203", "E231", "E241", "E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F403", "F401"]
 
 [tool.black]
 line-length = 88

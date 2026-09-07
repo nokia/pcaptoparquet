@@ -77,7 +77,7 @@ def decode(packet: Any, transport: Any, app: Any) -> Optional[bytes]:
 
                 elif rr_type == 22:  # TLSHandshake
                     try:
-                        (app_session, app_request, app_response, e2e_sni) = (
+                        app_session, app_request, app_response, e2e_sni = (
                             decode_tls_handshake(
                                 rr.data,
                                 getattr(packet, "app_request"),

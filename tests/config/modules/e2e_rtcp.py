@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 # RFC3550 and RFC3611
 """RTP Control Protocol."""
+
 import math
 from typing import Any, Optional
 
@@ -461,7 +462,7 @@ class RTCP(dpkt.Packet):  # type: ignore
         """
         Add info to the RTCP object.
         """
-        if not getattr(self, "pt") in (PT_SR, PT_RR, PT_XR):
+        if getattr(self, "pt") not in (PT_SR, PT_RR, PT_XR):
             raise ValueError("Info property not supported.")
         self.info = info
         ll = (
@@ -483,7 +484,7 @@ class RTCP(dpkt.Packet):  # type: ignore
         """
         Add a report to the RTCP object.
         """
-        if not getattr(self, "pt") in (PT_SR, PT_RR, PT_XR):
+        if getattr(self, "pt") not in (PT_SR, PT_RR, PT_XR):
             raise ValueError("Report property not supported.")
         getattr(self, "reports").append(report)
         setattr(self, "cc", len(getattr(self, "reports")))

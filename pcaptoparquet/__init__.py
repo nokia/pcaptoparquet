@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 """fast, simple pcap converter."""
+
 from __future__ import absolute_import, division
 
 import importlib.metadata

@@ -18,6 +18,7 @@ Example usage:
     # Export the data in JSON format
     pcap.export(outformat="json", output="output.json")
 """
+
 import datetime
 import gc
 import io
@@ -152,6 +153,7 @@ class E2EPcap:
         encapsulation: str,
         transport_port_cb: dict[str, Any],
         meta_values: Optional[Dict[Any, Any]] = None,
+        keep_not_decoded: bool = False,
     ) -> E2EPacket:
         """
         Process a single PCAP packet.
@@ -175,6 +177,7 @@ class E2EPcap:
             outerip,
             transport_port_cb,
             meta_values=meta_values,
+            keep_not_decoded=keep_not_decoded,
         )
 
     @staticmethod
@@ -248,6 +251,7 @@ class E2EPcap:
         meta_values: dict[str, str],
         pcap_dtypes: dict[str, str],
         pcap_dict_list: dict[str, Any],
+        keep_not_decoded: bool = False,
     ) -> None:
         """
         Process a single packet and append it to the dictionary list.
@@ -260,6 +264,7 @@ class E2EPcap:
                 encapsulation,
                 transport_port_cb,
                 meta_values=meta_values,
+                keep_not_decoded=keep_not_decoded,
             )
             new_row = e2e_pkt.to_dict(pcap_dtypes)
             for key in pcap_dtypes:
@@ -308,6 +313,7 @@ class E2EPcap:
             file_handle = None
             use_polars = True
             pktnum = 0
+            keep_not_decoded = False
         else:
             pcap_dtypes = params["pcap_dtypes"]
             encapsulation = params["encapsulation"]
@@ -327,6 +333,7 @@ class E2EPcap:
             file_handle = params["file_handle"]
             use_polars = params["use_polars"]
             pktnum = params["pktnum"]
+            keep_not_decoded = bool(params.get("keep_not_decoded", False))
 
         if not use_polars and not file_handle:
             raise ValueError("File handle is required for non-polars output formats.")
@@ -357,6 +364,7 @@ class E2EPcap:
                         meta_values,
                         pcap_dtypes,
                         pcap_dict_list,
+                        keep_not_decoded=keep_not_decoded,
                     )
 
                 else:
@@ -368,6 +376,7 @@ class E2EPcap:
                             encapsulation,
                             transport_port_cb,
                             meta_values=meta_values,
+                            keep_not_decoded=keep_not_decoded,
                         )
                         sep_ = E2EPcap._print_packet(
                             e2e_pkt, outformat, file_handle, sep_
@@ -700,6 +709,8 @@ class E2EPcap:
             (self._common_user_meta, self._common_pcap_meta)
         )
 
+        keep_not_decoded = len(self.post_callbacks) > 0
+
         # Multiprocessing
         if self.ps is not None:
             # Parallel processing
@@ -714,6 +725,7 @@ class E2EPcap:
                     "file_handle": None,  # No file handle in parallel processing
                     "pktnum": pktnum,
                     "use_polars": use_polars,
+                    "keep_not_decoded": keep_not_decoded,
                 }
             )
 
@@ -730,14 +742,23 @@ class E2EPcap:
             del partial_results
             gc.collect()
 
-            # Sort results by utc_date_time of the first packet
-            pl_list.sort(
-                key=lambda x: x.filter(pl.col("utc_date_time").is_not_null())[
-                    "utc_date_time"
-                ][0]
-            )
+            if not pl_list:
+                pl_pcaparquet = pl.DataFrame(
+                    schema=pl.Schema(E2EPcap.get_polars_schema(pcap_dtypes))
+                )
+            else:
+                min_utc = datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
 
-            pl_pcaparquet = pl.concat(pl_list)
+                def _chunk_sort_key(frame: pl.DataFrame) -> Any:
+                    times = frame.filter(pl.col("utc_date_time").is_not_null())[
+                        "utc_date_time"
+                    ]
+                    if len(times) == 0:
+                        return min_utc
+                    return times[0]
+
+                pl_list.sort(key=_chunk_sort_key)
+                pl_pcaparquet = pl.concat(pl_list)
 
             pl_list.clear()  # Clear the list to free memory
             del pl_list  # Clear the list to free memory
@@ -765,6 +786,7 @@ class E2EPcap:
                     "file_handle": file_handle,
                     "pktnum": pktnum,
                     "use_polars": use_polars,
+                    "keep_not_decoded": keep_not_decoded,
                 },
             )
 
@@ -781,10 +803,10 @@ class E2EPcap:
                 return pl_pcaparquet
 
             E2EPcap.write_dataframe(pl_pcaparquet, file_handle, outformat, close_fh)
-
-        if close_fh:
+        elif close_fh:
             file_handle.close()  # type: ignore
-        else:
+
+        if not close_fh:
             sys.stdout.flush()
 
         return pl.DataFrame()

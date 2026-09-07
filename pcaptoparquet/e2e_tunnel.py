@@ -47,6 +47,7 @@ Output:
         )
     )
 """
+
 import struct
 from typing import Any
 

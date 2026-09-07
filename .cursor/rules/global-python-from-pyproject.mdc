@@ -1,0 +1,21 @@
+---
+description: Read pyproject.toml and match new Python code to project tooling and layout
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Python code from `pyproject.toml`
+
+Before adding or changing Python code, **read the project root `pyproject.toml`** and infer conventions from it. Do not assume defaults from memory if the file disagrees.
+
+## What to infer
+
+1. **Layout**: `[tool.setuptools]` / `[project]` — `packages`, `py-modules`, entrypoints (`[project.scripts]`). New modules live under declared package roots; CLI in declared modules.
+2. **Python version**: `[tool.tox]` `envlist`, classifiers, or `requires-python` if present — target that version for syntax and APIs.
+3. **Formatting & import order**: `[tool.black]` line length; `[tool.isort]` profile and `src_paths` — match line length and isort profile.
+4. **Lint**: `[tool.flake8]`, `[tool.ruff]`, and/or `[tool.ruff.lint]` — `max-line-length` / `line-length`, `ignore`, `exclude`, `per-file-ignores`. Use the tools `pyproject.toml` actually configures.
+5. **Types**: `[tool.mypy]`, `[tool.pyright]` — strictness, `ignore_missing_imports`, type checking mode. New code should satisfy the stricter of the configured tools unless a file is explicitly excluded.
+6. **Tests & deps**: `[project.optional-dependencies]`, tox/pytest config — use the same test runner and paths as configured.
+7. **Runtime deps**: `[project] dependencies` — prefer existing dependencies; do not add packages without a reason aligned with `dependencies` / optional groups.
+
+If `pyproject.toml` changes, treat the file as source of truth and update assumptions accordingly. For repo-specific snapshots, see the **repo-python-stack** rule when present.

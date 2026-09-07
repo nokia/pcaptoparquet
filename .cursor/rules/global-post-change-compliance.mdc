@@ -1,0 +1,22 @@
+---
+description: After non-trivial code changes, run the quality gate and test suite before handoff
+alwaysApply: true
+---
+
+# Post-change compliance
+
+After **any non-trivial code change** (logic, types, public APIs, dependencies, or anything that could affect runtime or imports), verify compliance before handing off:
+
+1. **Quality gate** — Run the project's format, import-order, lint, and type-check tools on the paths they cover.
+2. **Tests** — Run the default test suite; it should pass before you treat work as complete.
+
+Treat both as required unless the change is documentation-only or clearly outside the language/tooling scope (and even then run checks if you touched config that affects tooling).
+
+## During iteration
+
+- A targeted test run is fine while iterating, but the full default suite should pass before handoff.
+- When behavior or contracts change, add or update tests that would have failed without the fix (avoid tests that only mirror implementation trivia).
+
+## Paths not covered by the default gate
+
+If the project excludes certain directories from the default quality gate, run the same tools manually on edited files in those paths so results match project config.

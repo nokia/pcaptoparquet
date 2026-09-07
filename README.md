@@ -79,6 +79,8 @@ Contributions are welcome. Please follow these steps to contribute:
 
 Please make sure to update tests as appropriate.
 
+If you use Cursor, repository-specific agent guidance lives under `.cursor/` (see `.cursor/README.md`). Those files describe this project's Makefile, tests, and protocol decoder layout only.
+
 ### Development Installation
 
 After cloning the repository, you can set up your development environment:
@@ -87,8 +89,7 @@ After cloning the repository, you can set up your development environment:
 python -m venv <your_venv>
 source <your_venv>/bin/activate   # In windows: .\<your_venv>\Scripts\activate
 python -m pip install --upgrade pip
-python -m pip install -e .
-python -m pip install black isort pyright flake8 Flake8-pyproject mypy tox coverage build twine
+python -m pip install -e ".[dev]"
 ```
 
 or
@@ -132,17 +133,17 @@ The `pcaptoparquet` project uses several tools to ensure code quality:
 - `black`: for code formatting
 - `isort`: for sorting imports
 - `pyright`: for type checking
-- `flake8`: for linting
+- `ruff`: for linting
 - `mypy`: for static type checking
 
 You can run these checks using the following commands:
 
 ```sh
-black --check pcaptoparquet_cli.py pcaptoparquet tests
-isort --check-only pcaptoparquet_cli.py pcaptoparquet tests
-pyright pcaptoparquet_cli.py pcaptoparquet tests
-flake8 pcaptoparquet_cli.py pcaptoparquet tests
-mypy pcaptoparquet_cli.py pcaptoparquet tests
+black --check pcaptoparquet tests pcaptoparquet_cli.py test_cli
+isort --check-only pcaptoparquet tests pcaptoparquet_cli.py test_cli
+pyright pcaptoparquet tests pcaptoparquet_cli.py test_cli
+ruff check pcaptoparquet tests pcaptoparquet_cli.py test_cli
+mypy pcaptoparquet tests pcaptoparquet_cli.py test_cli
 ```
 
 or

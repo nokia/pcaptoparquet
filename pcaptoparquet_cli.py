@@ -15,6 +15,7 @@ interface. Behavior can be extended by:
     * Modifying post-processing behavior by passing a custom callback function to
       the `callbackpath` argument.
 """
+
 import argparse
 
 from pcaptoparquet import E2ECli

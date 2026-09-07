@@ -154,7 +154,7 @@ def decode(packet: Any, transport: Any, app: Any) -> Optional[bytes]:
         return None
 
     try:
-        (app_type, app_request, app_response, app_data) = decode_http_request(app)
+        app_type, app_request, app_response, app_data = decode_http_request(app)
         setattr(packet, "app_type", app_type)
         setattr(packet, "app_request", app_request)
         setattr(packet, "app_response", app_response)
@@ -163,7 +163,7 @@ def decode(packet: Any, transport: Any, app: Any) -> Optional[bytes]:
 
     if getattr(packet, "app_type") is None:
         try:
-            (app_type, app_request, app_response, app_data) = decode_http_response(app)
+            app_type, app_request, app_response, app_data = decode_http_response(app)
             setattr(packet, "app_type", app_type)
             setattr(packet, "app_request", app_request)
             setattr(packet, "app_response", app_response)

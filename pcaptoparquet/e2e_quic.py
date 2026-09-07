@@ -5,12 +5,14 @@
 """
 Quic Packet Parser Utility
 """
-import operator
+
 import struct
 from enum import IntEnum
+from functools import lru_cache
 from typing import Any, Dict, Optional, Tuple
 
 import dpkt
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, hmac
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -64,6 +66,8 @@ def pull_uint_var(buf: bytes) -> Tuple[int, int]:
     """
     Extracts a variable-length unsigned integer from the buffer.
     """
+    if not buf:
+        raise IndexError("truncated QUIC varint")
     pos = 0
     prefix = buf[pos] >> 6
 
@@ -71,15 +75,18 @@ def pull_uint_var(buf: bytes) -> Tuple[int, int]:
         value = buf[pos] & 0x3F
         pos += 1
     elif prefix == 1:
-        assert len(buf) > 1
+        if len(buf) < 2:
+            raise IndexError("truncated QUIC varint")
         value = struct.unpack_from(">H", buf, pos)[0] & 0x3FFF
         pos += 2
     elif prefix == 2:
-        assert len(buf) > 3
+        if len(buf) < 4:
+            raise IndexError("truncated QUIC varint")
         value = struct.unpack_from(">I", buf, pos)[0] & 0x3FFFFFFF
         pos += 4
     else:
-        assert len(buf) > 7
+        if len(buf) < 8:
+            raise IndexError("truncated QUIC varint")
         value = struct.unpack_from(">Q", buf, pos)[0] & 0x3FFFFFFFFFFFFFFF
         pos += 8
 
@@ -118,106 +125,105 @@ class QuicFrameType(IntEnum):
     DATAGRAM_WITH_LENGTH = 0x31
 
 
-class E2EQuicInitial:
+QUIC_V1_VERSION_HEX = "00000001"
+INITIAL_SALT_VERSION_1 = bytes.fromhex("38762cf7f55934b34d179ae6a4c80cadccbb7f0a")
+_AEAD_TAG_LENGTH = 16
+_SAMPLE_SIZE = 16
+_KEY_SIZE = 16
+
+
+@lru_cache(maxsize=2048)
+def _initial_traffic_keys(dcid: bytes, in_label: bytes) -> Tuple[bytes, bytes, bytes]:
+    """Derive QUIC v1 Initial AEAD key, IV, and header-protection key."""
+    algo = hashes.SHA256()
+    initial_secret = hkdf_extract(algo, INITIAL_SALT_VERSION_1, dcid)
+    secret = hkdf_expand_label(algo, initial_secret, in_label, b"", algo.digest_size)
+    pp_key = hkdf_expand_label(algo, secret, b"quic key", b"", _KEY_SIZE)
+    iv_key = hkdf_expand_label(algo, secret, b"quic iv", b"", 12)
+    hp_key = hkdf_expand_label(algo, secret, b"quic hp", b"", _KEY_SIZE)
+    return pp_key, iv_key, hp_key
+
+
+def unprotect_initial(
+    raw_quic_packet: bytes, pn_offset: int, dcid: bytes, remainder_len: int
+) -> Optional[Tuple[int, bytes]]:
+    """Remove Initial header protection and AEAD.
+
+    Tries ``client in`` then ``server in``. Returns ``(packet_number, plaintext)``
+    only when the GCM tag verifies. Remainder is the QUIC Length field (PN +
+    ciphertext + tag).
     """
-    Simple QUIC Initial Packet Parser
-    """
+    sample = raw_quic_packet[pn_offset + 4 : pn_offset + 4 + _SAMPLE_SIZE]
+    if len(sample) < _SAMPLE_SIZE:
+        return None
+    for in_label in (b"client in", b"server in"):
+        try:
+            pp_key, iv_key, hp_key = _initial_traffic_keys(dcid, in_label)
+            mask = (
+                Cipher(
+                    algorithms.AES(hp_key),
+                    modes.ECB(),
+                    backend=default_backend(),
+                )
+                .encryptor()
+                .update(sample)
+            )
+            if len(mask) < 5:
+                continue
+            first_byte_open = raw_quic_packet[0] ^ (mask[0] & 0x0F)
+            pnl = (first_byte_open & 0x03) + 1
+            encrypted_pn = raw_quic_packet[pn_offset : pn_offset + pnl]
+            if len(encrypted_pn) < pnl:
+                continue
+            pn = bytes(a ^ b for a, b in zip(encrypted_pn, mask[1 : pnl + 1]))
+            payload_offset = pn_offset + pnl
+            aead_len = remainder_len - pnl
+            if aead_len < _AEAD_TAG_LENGTH:
+                continue
+            blob = raw_quic_packet[payload_offset : payload_offset + aead_len]
+            if len(blob) < aead_len:
+                continue
+            ciphertext = blob[:-_AEAD_TAG_LENGTH]
+            tag = blob[-_AEAD_TAG_LENGTH:]
+            iv = (int.from_bytes(iv_key, "big") ^ int.from_bytes(pn, "big")).to_bytes(
+                12, "big"
+            )
+            aad = bytearray(raw_quic_packet[:payload_offset])
+            aad[0] = first_byte_open
+            aad[pn_offset : pn_offset + pnl] = pn
+            decryptor = Cipher(
+                algorithms.AES(pp_key),
+                modes.GCM(iv, tag),
+                backend=default_backend(),
+            ).decryptor()
+            decryptor.authenticate_additional_data(bytes(aad))
+            plaintext = decryptor.update(ciphertext) + decryptor.finalize()
+            return int.from_bytes(pn, "big"), plaintext
+        except (InvalidTag, ValueError, IndexError):
+            continue
+    return None
 
-    # Initial Packet {
-    INITIAL_CIPHER_SUITE = "AES_128_GCM_SHA256"
-    INITIAL_SALT_VERSION_1 = bytes.fromhex("38762cf7f55934b34d179ae6a4c80cadccbb7f0a")
-    # INITIAL_SALT_VERSION_2 = bytes.fromhex("0dede3def700a6db819381be6e269dcbf9bd2ed9")
-    SAMPLE_SIZE = 16
 
-    v1_salt = INITIAL_SALT_VERSION_1
-    v1_algorithm = hashes.SHA256()
-
-    AEAD_KEY_LENGTH_MAX = 32
-    AEAD_NONCE_LENGTH = 12
-    AEAD_TAG_LENGTH = 16
-    PACKET_LENGTH_MAX = 1500
-
-    hp_cipher_name = b"aes-128-ecb"
-    aead_cipher_name = b"aes-128-gcm"
-    key_size = 16
-
-    def __init__(self, raw_quic_packet: bytes, pn_offset: int, dcid: bytes):
-        """
-        Initialize the QUIC Packet Parser
-        """
-        # uint8_t sample[16];
-        # tvb_memcpy(tvb, sample, pn_offset + 4, 16);
-        sample_offset = pn_offset + 4
-        sample = raw_quic_packet[
-            sample_offset : sample_offset + E2EQuicInitial.SAMPLE_SIZE + 1
-        ]
-        # header = bytearray(raw_quic_packet[: sample_offset + 1])
-        initial_secret = hkdf_extract(
-            E2EQuicInitial.v1_algorithm, E2EQuicInitial.v1_salt, dcid
-        )
-        client_secret = hkdf_expand_label(
-            E2EQuicInitial.v1_algorithm,
-            initial_secret,
-            b"client in",
-            b"",
-            E2EQuicInitial.v1_algorithm.digest_size,
-        )
-        pp_key = hkdf_expand_label(
-            E2EQuicInitial.v1_algorithm,
-            client_secret,
-            b"quic key",
-            b"",
-            E2EQuicInitial.key_size,
-        )
-        iv_key = hkdf_expand_label(
-            E2EQuicInitial.v1_algorithm, client_secret, b"quic iv", b"", 12
-        )
-        hp_key = hkdf_expand_label(
-            E2EQuicInitial.v1_algorithm,
-            client_secret,
-            b"quic hp",
-            b"",
-            E2EQuicInitial.key_size,
-        )
-
-        # Header encryption using AES
-        header_encryptor = Cipher(
-            algorithms.AES(hp_key), modes.ECB(), backend=default_backend()
-        ).encryptor()
-
-        mask = header_encryptor.update(sample)
-
-        # Extract first byte and calculate packet number length (pnl)
-        first_byte_open = raw_quic_packet[0] ^ (mask[0] & 0x0F)
-
-        pnl = (first_byte_open & 0x03) + 1
-
-        # Decrypt packet number
-        encrypted_pn = raw_quic_packet[pn_offset : pn_offset + pnl]
-        self.pn = bytes(map(operator.xor, encrypted_pn, mask[1 : pnl + 1]))
-        self.payload_offset = pn_offset + pnl
-
-        # Generate IV
-        iv = (int.from_bytes(iv_key, "big") ^ int.from_bytes(self.pn, "big")).to_bytes(
-            12, "big"
-        )
-
-        # Payload decryption using AES-GCM
-        self.payload_decryptor = Cipher(
-            algorithms.AES(pp_key), modes.GCM(iv), backend=default_backend()
-        ).decryptor()
-
-    def get_packet_number(self) -> bytes:
-        """
-        Get the packet number
-        """
-        return self.pn
-
-    def get_payload_offset(self) -> int:
-        """
-        Get the payload offset
-        """
-        return self.payload_offset
+def _skip_ack_frame(payload: bytes, pos: int, ecn: bool) -> int:
+    """Advance past an ACK or ACK_ECN frame body (RFC 9000 §19.3)."""
+    _, n = pull_uint_var(payload[pos:])
+    pos += n
+    _, n = pull_uint_var(payload[pos:])
+    pos += n
+    range_count, n = pull_uint_var(payload[pos:])
+    pos += n
+    _, n = pull_uint_var(payload[pos:])
+    pos += n
+    for _ in range(range_count):
+        _, n = pull_uint_var(payload[pos:])
+        pos += n
+        _, n = pull_uint_var(payload[pos:])
+        pos += n
+    if ecn:
+        for _ in range(3):
+            _, n = pull_uint_var(payload[pos:])
+            pos += n
+    return pos
 
 
 class E2EQuic:
@@ -235,8 +241,8 @@ class E2EQuic:
 
         read_pos = 0
         while read_pos < len(payload):
-            while payload[read_pos] == QuicFrameType.PADDING and read_pos < len(
-                payload
+            while (
+                read_pos < len(payload) and payload[read_pos] == QuicFrameType.PADDING
             ):
                 read_pos += 1
 
@@ -246,19 +252,25 @@ class E2EQuic:
             try:
                 frame_type = payload[read_pos]
                 read_pos += 1
+                if frame_type == QuicFrameType.PING:
+                    continue
+                if frame_type == QuicFrameType.ACK:
+                    read_pos = _skip_ack_frame(payload, read_pos, False)
+                    continue
+                if frame_type == QuicFrameType.ACK_ECN:
+                    read_pos = _skip_ack_frame(payload, read_pos, True)
+                    continue
+                if frame_type != QuicFrameType.CRYPTO:
+                    break
                 frame_offset, frame_offset_len = pull_uint_var(payload[read_pos:])
                 read_pos += frame_offset_len
                 frame_length, frame_length_len = pull_uint_var(payload[read_pos:])
                 read_pos += frame_length_len
                 frame_data = payload[read_pos : read_pos + frame_length]
-
-                if frame_type == QuicFrameType.CRYPTO:
-                    # Store the frame crypto data for reassembly
-                    crypto_frame[frame_offset] = frame_data
-
+                crypto_frame[frame_offset] = frame_data
                 read_pos += frame_length
 
-            except AssertionError:
+            except (IndexError, struct.error):
                 break
 
         # Sort the frames by offset and reassemble the CRYPTO frame
@@ -269,6 +281,8 @@ class E2EQuic:
         Initialize the QUIC Packet Parser
         """
         try:
+            self.packet_number: Optional[int] = None
+            self.crypto_data = b""
             #   Extract the first byte (header form and type)
             first_byte = raw_quic_packet[0]
 
@@ -318,73 +332,64 @@ class E2EQuic:
                 #   Protected Payload (128),   # Sampled Part
                 #   Protected Payload (..)     # Remainder
                 # }
+                after_scid = 7 + dcid_length + scid_length
                 if self.ptype == 0:
 
                     #   Token Length (i),
                     token_length, token_pos_len = pull_uint_var(
-                        raw_quic_packet[7 + dcid_length + scid_length :]
+                        raw_quic_packet[after_scid:]
                     )
                     #   Token (..),
+                    token_start = after_scid + token_pos_len
                     self.token = raw_quic_packet[
-                        8
-                        + dcid_length
-                        + scid_length : 8
-                        + dcid_length
-                        + scid_length
-                        + token_length
+                        token_start : token_start + token_length
                     ]
 
                     #   Length (i),
+                    length_start = token_start + token_length
                     self.payload_length, plength_pos_len = pull_uint_var(
-                        raw_quic_packet[8 + dcid_length + scid_length + token_length :]
+                        raw_quic_packet[length_start:]
                     )
 
                     self.type = "Long Header: Initial"
-                    # pn_offset is the start of the Packet Number field.
-                    # // PKN is after type(1) + version(4) + DCIL+DCID + SCIL+SCID
-                    # unsigned pn_offset = 1 + 4 + 1 + dcid.len + 1 + scid.len;
-                    pn_offset = 1 + 4 + 1 + dcid_length + 1 + scid_length
+                    pn_offset = after_scid + token_pos_len + token_length
+                    pn_offset += plength_pos_len
 
-                    # if (long_packet_type == QUIC_LPT_INITIAL) {
-                    #     pn_offset += tvb_get_varint(tvb, pn_offset, 8, &token_length,
-                    #                                 ENC_VARINT_QUIC);
-                    pn_offset += token_pos_len  # To be updated varint
-                    #     pn_offset += (unsigned)token_length;
-                    pn_offset += token_length
-                    # }
-                    # pn_offset += tvb_get_varint(tvb, pn_offset, 8, &payload_length,
-                    #                             ENC_VARINT_QUIC);
-                    pn_offset += plength_pos_len  # To be updated varint
+                    if self.quic_version == QUIC_V1_VERSION_HEX:
+                        opened = unprotect_initial(
+                            raw_quic_packet,
+                            pn_offset,
+                            self.dcid,
+                            self.payload_length,
+                        )
+                        if opened is not None:
+                            self.packet_number, plaintext = opened
+                            try:
+                                self.crypto_data = E2EQuic.parse_crypto_frame(plaintext)
+                            except Exception:  # pylint: disable=broad-except
+                                self.crypto_data = b""
 
-                    quic_initial = E2EQuicInitial(raw_quic_packet, pn_offset, self.dcid)
-
-                    # Replace with actual protected payload
-                    self.packet_number = quic_initial.get_packet_number()
-                    payload_offset = quic_initial.get_payload_offset()
-                    # Decrypt payload and verify
-                    payload = quic_initial.payload_decryptor.update(
-                        raw_quic_packet[
-                            payload_offset : payload_offset + self.payload_length
-                        ]
-                    )
-                    try:
-                        self.crypto_data = E2EQuic.parse_crypto_frame(payload)
-                    except Exception:  # pylint: disable=broad-except
-                        self.crypto_data = b""
+                elif self.ptype == 1:
+                    self.type = "Long Header: 0-RTT"
+                    self.payload_length, _ = pull_uint_var(raw_quic_packet[after_scid:])
 
                 elif self.ptype == 2:
                     self.type = "Long Header: Handshake"
 
                     #   Length (i),
                     self.payload_length, plength_pos_len = pull_uint_var(
-                        raw_quic_packet[8 + dcid_length + scid_length :]
+                        raw_quic_packet[after_scid:]
                     )
+
+                elif self.ptype == 3:
+                    self.type = "Long Header: Retry"
+                    self.payload_length = 0
 
                 else:
                     self.type = "Long Header: Other"
                     #   Length (i),
                     self.payload_length, plength_pos_len = pull_uint_var(
-                        raw_quic_packet[8 + dcid_length + scid_length :]
+                        raw_quic_packet[after_scid:]
                     )
         except IndexError:
             pass
@@ -465,8 +470,7 @@ def decode(packet: Any, transport: Any, app: Any) -> Optional[bytes]:
                     setattr(
                         packet,
                         "app_seq",
-                        struct.unpack("!L", quic[8 + delta : 12 + delta])[0]
-                        & 0x00FFFFFF,
+                        struct.unpack("!L", b"\x00" + quic[9 + delta : 12 + delta])[0],
                     )
                 else:
                     setattr(
@@ -491,8 +495,7 @@ def decode(packet: Any, transport: Any, app: Any) -> Optional[bytes]:
                     setattr(
                         packet,
                         "app_seq",
-                        struct.unpack("!L", quic[0 + delta : 4 + delta])[0]
-                        & 0x00FFFFFF,
+                        struct.unpack("!L", b"\x00" + quic[1 + delta : 4 + delta])[0],
                     )
                 else:
                     setattr(
@@ -500,6 +503,9 @@ def decode(packet: Any, transport: Any, app: Any) -> Optional[bytes]:
                         "app_seq",
                         struct.unpack("!L", quic[1 + delta : 5 + delta])[0],
                     )
+            seq = getattr(packet, "app_seq", None)
+            if seq is not None:
+                setattr(packet, "transport_pkn", seq)
         else:
             setattr(packet, "app_type", "QUIC")
             try:
@@ -515,7 +521,7 @@ def decode(packet: Any, transport: Any, app: Any) -> Optional[bytes]:
                     if quic_pkt.ptype == 0:
                         # type = "Initial"
                         try:
-                            (_, app_request, app_response, e2e_sni) = (
+                            _, app_request, app_response, e2e_sni = (
                                 decode_tls_handshake(
                                     quic_pkt.get_crypto_data(),
                                     getattr(packet, "app_request"),
@@ -529,6 +535,8 @@ def decode(packet: Any, transport: Any, app: Any) -> Optional[bytes]:
                             setattr(packet, "e2e_sni", None)
 
                         setattr(packet, "app_session", quic_pkt.dcid.hex())
+                        if quic_pkt.packet_number is not None:
+                            setattr(packet, "transport_pkn", quic_pkt.packet_number)
 
                     # elif ptype == 2:
                     #  TODO: "Handshake" implementation

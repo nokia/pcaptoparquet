@@ -1,0 +1,45 @@
+---
+description: This repository's Makefile targets, venv, quality tools, and test commands
+alwaysApply: true
+---
+
+# Dev workflow (this repository)
+
+Use the root **Makefile** as the canonical way to install dev tooling and run the same checks others will run. Tooling details live in **`pyproject.toml`**; see **global-python-from-pyproject** and **repo-python-stack** when editing Python.
+
+## Environment
+
+- **`make venv`** creates **`venv_build/`** (not `.venv`), editable-installs the project with the **`dev`** extra, and prefers `venv_build/bin/python` for manual commands. Pinned tool versions live in **`pyproject.toml`** `[project.optional-dependencies] dev`; bump those pins when upgrading tools (then run `make fix` if Black/isort change).
+
+## Quality tools (what they enforce)
+
+| Tool | Role |
+|------|------|
+| **Black** | Consistent formatting (line length 88). |
+| **isort** | Import order (`profile = black`). |
+| **ruff** | Lint (`E`/`F`/`W`; see `pyproject.toml`). |
+| **mypy** | Static types (`strict`; see `pyproject.toml`). |
+| **Pyright** | Additional type checking (`basic` mode in config). |
+
+`make check` and `make fix` cover `pcaptoparquet`, `tests`, `pcaptoparquet_cli.py`, and `test_cli`.
+
+Use **`make fix`** for Black + isort auto-fixes on those paths. A formatter pin bump that rewrites the tree should be its own change, not mixed into a feature diff.
+
+## Unit tests
+
+- Tests live under **`tests/`** (library) and **`test_cli/`** (CLI). Tox runs **`pytest tests/`** (Python **3.11**).
+- **`make test`** — `tox` (the default suite).
+- During iteration, a targeted run is fine, e.g. `venv_build/bin/pytest tests/test_quic_initial.py --verbose`.
+- For **which tests to run** during development, use the **repo-fast-test-selection** skill.
+
+## Compliance after code changes
+
+Follow **global-post-change-compliance** with: **`make check`**, then **`make test`**.
+
+**`make coverage`** — line coverage + HTML under `htmlcov/`.
+
+## Builds
+
+- **`make build`** runs `python -m build` (wheel/sdist) using the venv.
+
+If you add a new official check or path, update the **Makefile** and **README** so `make check` / `make test` stay the single source of truth.

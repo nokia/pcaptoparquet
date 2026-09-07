@@ -273,6 +273,13 @@ class PCAPParallel:
 
         pcap.dispatch(self.maximum_count, self.dpkt_count_bytes_cb)
 
+        if not self.unprocessed_bytes:
+            self.split_sizes = []
+            if self.dpkt_data:
+                self.dpkt_data.close()
+            gc.collect()
+            return
+
         # euristic to determine how many packets we can process in parallel
         # testing shows that we use more than 25 times the size of the pcap file
         # We rounded this to 32 times unprocessed_bytes[-1] divided by memory available

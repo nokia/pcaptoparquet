@@ -7,6 +7,7 @@ configuration for the E2E Pcap class. This includes:
 - Transport port to Protocol Decoding Callback mapping.
 - Post processing callback function list.
 """
+
 import importlib.util
 import json
 import os
@@ -72,25 +73,26 @@ class E2EConfig:
         tpport_to_prot: dict[str, Any],
         tp_config: dict[str, Any],
         decode_cb: Callable[[Any, Any, Any], Optional[bytes]],
+        protocol_name: Optional[str] = None,
+        iterable: bool = False,
     ) -> None:
         """
         Load the transport protocol configuration.
         """
         transports = ("TCP", "UDP", "SCTP")
 
-        if tp_config["try_decode"]:
-            for transport in tp_config["try_decode"]:
-                if transport in transports:
-                    # Add the decode function to the list of functions to try
-                    tpport_to_prot[transport][0].append(decode_cb)
+        for transport in tp_config.get("try_decode") or []:
+            if transport in transports:
+                tpport_to_prot[transport][0].append(decode_cb)
 
-            for transport in transports:
-                if transport in tp_config:
-                    for port in tp_config[transport]:
-                        tpport_to_prot[transport][port] = ProtocolDecoder(decode_cb)
+        for transport in transports:
+            if transport in tp_config:
+                for port in tp_config[transport]:
+                    tpport_to_prot[transport][port] = ProtocolDecoder(decode_cb)
 
-            if "iterable" in tp_config:
-                tpport_to_prot["iterable"].append(decode_cb)
+        if iterable or tp_config.get("iterable"):
+            if protocol_name:
+                tpport_to_prot["iterable"].append(protocol_name)
 
     def load_mapping_from_file(self) -> Tuple[dict[str, Any], Any]:
         """
@@ -179,6 +181,8 @@ class E2EConfig:
                         transportport_to_protocol,
                         protocol["transport_protocols"],
                         decode_cb,
+                        protocol_name=protocol["protocol_name"],
+                        iterable=bool(protocol.get("iterable")),
                     )
 
                 # Existing applications (overrides)
@@ -199,6 +203,8 @@ class E2EConfig:
                                 transportport_to_protocol,
                                 protocol["transport_protocols"],
                                 decode_cb,
+                                protocol_name=app,
+                                iterable=bool(protocol.get("iterable")),
                             )
 
         return (transportport_to_protocol, mapping_with_modules)

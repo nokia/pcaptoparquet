@@ -67,6 +67,7 @@ Use DPKT to extract E2E relevant contents from packets such as:
         - ServerNames
         - ServerAddress
 """
+
 import datetime
 import struct
 from typing import Any, Optional, Union
@@ -254,8 +255,12 @@ class E2EPacket:
         Returns the data that was not decoded.
 
         Returns:
-            Any: The not decoded data.
+            Optional[list[int]]: Byte values, or None if not kept.
         """
+        if self._not_decoded_data is None:
+            return None
+        if isinstance(self._not_decoded_data, bytes):
+            return list(self._not_decoded_data)
         return self._not_decoded_data
 
     @staticmethod
@@ -625,19 +630,19 @@ class E2EPacket:
         """
         try:
             sacks = struct.unpack("!IIIIII", value)
-            sack_1_from = sacks[4]
-            sack_1_to = sacks[5]
+            sack_1_from = sacks[0]
+            sack_1_to = sacks[1]
             sack_2_from = sacks[2]
             sack_2_to = sacks[3]
-            sack_3_from = sacks[0]
-            sack_3_to = sacks[1]
+            sack_3_from = sacks[4]
+            sack_3_to = sacks[5]
         except struct.error:
             try:
                 sacks = struct.unpack("!IIII", value)
-                sack_1_from = sacks[2]
-                sack_1_to = sacks[3]
-                sack_2_from = sacks[0]
-                sack_2_to = sacks[1]
+                sack_1_from = sacks[0]
+                sack_1_to = sacks[1]
+                sack_2_from = sacks[2]
+                sack_2_to = sacks[3]
             except struct.error:
                 try:
                     sacks = struct.unpack("!II", value)
@@ -839,6 +844,7 @@ class E2EPacket:
         outerip: Optional[Union[dpkt.ip.IP, dpkt.ip6.IP6]],
         transport_port_cb: dict[str, Any],
         meta_values: Optional[dict[str, str]] = None,
+        keep_not_decoded: bool = False,
     ) -> None:
         """
         Initialize an E2EPacket object.
@@ -936,15 +942,18 @@ class E2EPacket:
                         break
 
             # If no application data was found...
-            if self.app_type is None:
-                if app is not None:
-                    self._not_decoded_data = list(bytes(app))
-            else:
-                if appdata is not None:
-                    # if appdata is iterable
-                    if self.app_type in transport_port_cb["iterable"]:
-                        self._not_decoded_data = []
+            if keep_not_decoded:
+                if self.app_type is None:
+                    if app is not None:
+                        self._not_decoded_data = bytes(app)
+                elif appdata is not None:
+                    iterable = transport_port_cb.get("iterable", [])
+                    if self.app_type in iterable and not isinstance(
+                        appdata, (bytes, bytearray)
+                    ):
+                        chunks = bytearray()
                         for avp in appdata:
-                            self._not_decoded_data.extend(list(bytes(avp)))
-                    else:
-                        self._not_decoded_data = list(bytes(appdata))
+                            chunks.extend(bytes(avp))
+                        self._not_decoded_data = bytes(chunks)
+                    elif isinstance(appdata, (bytes, bytearray)):
+                        self._not_decoded_data = bytes(appdata)

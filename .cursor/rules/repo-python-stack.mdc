@@ -1,0 +1,41 @@
+---
+description: This repository's pyproject.toml snapshot — packages, tox, style, typing
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Python stack (this repository)
+
+Confirm against the root **`pyproject.toml`**; this is a snapshot for quick reference.
+
+## Layout and entrypoints
+
+- Package: `pcaptoparquet`; py-module: `pcaptoparquet_cli`.
+- Script: `pcaptoparquet` → `pcaptoparquet_cli:main`.
+- Public exports: `E2EPcap`, `E2EConfig`, `E2ECli`.
+
+## Runtime deps
+
+- `dpkt`, `cryptography`, `psutil`, `polars`.
+
+## Dev extra (`pip install -e ".[dev]"`)
+
+Pinned in `[project.optional-dependencies] dev` (Black, isort, pyright, ruff, mypy, tox, pytest, coverage, build, twine, pyinstaller). Tox’s pytest dep uses the same pin.
+
+## Tests and Python version
+
+- Tox: `py311`; tests via `pytest tests/`.
+- Makefile `check` also type-checks and lints `test_cli/`.
+
+## Style
+
+- Black + isort (`profile = "black"`), line length **88**.
+- ruff lint: `select = ["E", "F", "W"]`; ignores `E203`, `E231`, `E241`, `E501`; `__init__.py` also ignores `F401`, `F403`.
+- isort `src_paths`: `pcaptoparquet`, `tests`.
+
+## Typing
+
+- mypy: `strict = true`, `ignore_missing_imports = true`.
+- Pyright: `typeCheckingMode = "basic"`.
+
+If `pyproject.toml` changes, treat the file as source of truth and update this snapshot.

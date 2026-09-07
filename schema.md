@@ -17,7 +17,7 @@ These fields store packet number and packet timestamp:
 | Column name | Column type |
 |-------------|-------------|
 | **num** | UInt32 |
-| **utcdatetime** | datetime64[ns, UTC] |
+| **utc_date_time** | datetime64[ns, UTC] |
 
 ## Outer Link Layer and Tunnel Information
 
@@ -51,7 +51,9 @@ These fields capture IPv4, IPv6, and ESP information for the inner protocols lay
 
 ## Inner Transport Layer Information
 
-These fields capture information for UDP, TCP, ICMP, SCTP, and QUIC at the inner protocol layer, which is closer to the actual application data. This set of fields is crucial for analyzing application performance and security:
+These fields capture information for UDP, TCP, ICMP, SCTP, and QUIC at the inner protocol layer, which is closer to the actual application data. This set of fields is crucial for analyzing application performance and security.
+
+`transport_pkn` stores a packet or message number when it is visible without session keys: SCTP DATA, ICMP echo sequence (via the PING decoder), Google QUIC public headers, and IETF QUIC version 1 Initial packet numbers after header protection is removed (RFC 9000 / RFC 9001). Short-header QUIC packet numbers remain protected and are not decoded. `transport_spin` is the QUIC short-header spin bit.
 
 | Column name | Column type |
 |-------------|-------------|
@@ -77,12 +79,12 @@ These fields capture information for UDP, TCP, ICMP, SCTP, and QUIC at the inner
 | **transport_mss**| UInt16 |
 | **transport_wscale**| UInt16 |
 | **transport_sackok**| boolean |
-| **transport_sack1_from**| UInt32 |
-| **transport_sack1_to**| UInt32 |
-| **transport_sack2_from**| UInt32 |
-| **transport_sack2_to**| UInt32 |
-| **transport_sack3_from**| UInt32 |
-| **transport_sack3_to**| UInt32 |
+| **transport_sack_1_from**| UInt32 |
+| **transport_sack_1_to**| UInt32 |
+| **transport_sack_2_from**| UInt32 |
+| **transport_sack_2_to**| UInt32 |
+| **transport_sack_3_from**| UInt32 |
+| **transport_sack_3_to**| UInt32 |
 | **transport_tsval**| UInt32 |
 | **transport_tsecr**| UInt32 |
 | **transport_spin**| boolean |
@@ -91,7 +93,7 @@ These fields capture information for UDP, TCP, ICMP, SCTP, and QUIC at the inner
 
 ## Application Layer Fields and Types
 
-For some well-known application protocols, basic application information is captured. For non-encrypted traffic, session and sequence numbers are recorded, along with basic request/response decoding.  The currently supported application protocols include DNS, PING, HTTP, HTTPS and QUIC. For encrypted traffic (TLS), the Server Name Indicator (SNI) decoding is attempted:
+For some well-known application protocols, basic application information is captured. For non-encrypted traffic, session and sequence numbers are recorded, along with basic request/response decoding. The currently supported application protocols include DNS, PING, HTTP, HTTPS and QUIC. For TLS and for IETF QUIC version 1 Initial CRYPTO frames, Server Name Indication (SNI) decoding is attempted:
 
 | Column name | Column type |
 |-------------|-------------|

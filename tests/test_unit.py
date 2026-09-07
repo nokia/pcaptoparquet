@@ -1,4 +1,5 @@
 import datetime
+import struct
 import unittest
 from unittest.mock import MagicMock
 
@@ -137,11 +138,25 @@ class TestE2EPacket(unittest.TestCase):
 
         # Verify SACK OK was decoded
         self.assertTrue(packet.transport_sackok)
-
-        # Verify flags
         self.assertTrue(packet.transport_syn_flag)
         self.assertTrue(packet.transport_ack_flag)
         self.assertFalse(packet.transport_fin_flag)
+
+    def test_decode_sack_wire_order(self) -> None:
+        """SACK blocks follow RFC 2018 left-to-right wire order."""
+        packet = E2EPacket(
+            num=1,
+            utc_date_time=datetime.datetime.now(datetime.timezone.utc),
+            eth=None,
+            outerip=None,
+            transport_port_cb={},
+        )
+        one = struct.pack("!II", 10, 20)
+        self.assertEqual(packet.decode_sack(one), (10, 20, None, None, None, None))
+        two = struct.pack("!IIII", 10, 20, 30, 40)
+        self.assertEqual(packet.decode_sack(two), (10, 20, 30, 40, None, None))
+        three = struct.pack("!IIIIII", 10, 20, 30, 40, 50, 60)
+        self.assertEqual(packet.decode_sack(three), (10, 20, 30, 40, 50, 60))
 
 
 if __name__ == "__main__":

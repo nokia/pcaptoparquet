@@ -135,7 +135,9 @@ class E2ECli:
             action="store_true",
             help=(
                 "Use pcapparallel processing. "
-                + "Disabled by default and not compatible with stdin."
+                + "Disabled by default and not compatible with stdin. "
+                + "PCAPNG files with extra interface-description blocks "
+                + "may split incorrectly."
             ),
         )
         parser.add_argument(
@@ -232,7 +234,7 @@ class E2ECli:
             return E2ECli.tags_to_json({}, tags)
 
         # Get the directory and name of the input file
-        (pcap_dir, pcap_name) = os.path.split(e2e_input)
+        pcap_dir, pcap_name = os.path.split(e2e_input)
 
         return E2ECli.tags_to_json({"filename": pcap_name, "path": pcap_dir}, tags)
 
