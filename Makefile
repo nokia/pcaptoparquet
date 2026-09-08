@@ -22,21 +22,21 @@ venv:
 	$(PIP) install -e ".[dev]"
 
 check: venv
-	$(BLACK) --check pcaptoparquet tests pcaptoparquet_cli.py test_cli
-	$(ISORT) --check-only pcaptoparquet tests pcaptoparquet_cli.py test_cli
-	. $(VENV_DIR)/bin/activate && $(PYRIGHT) pcaptoparquet tests pcaptoparquet_cli.py test_cli
-	$(RUFF) check pcaptoparquet tests pcaptoparquet_cli.py test_cli
-	$(MYPY) pcaptoparquet tests pcaptoparquet_cli.py test_cli
+	$(BLACK) --check pcaptoparquet pcaptoparquet_mcp tests pcaptoparquet_cli.py test_cli
+	$(ISORT) --check-only pcaptoparquet pcaptoparquet_mcp tests pcaptoparquet_cli.py test_cli
+	. $(VENV_DIR)/bin/activate && $(PYRIGHT) pcaptoparquet pcaptoparquet_mcp tests pcaptoparquet_cli.py test_cli
+	$(RUFF) check pcaptoparquet pcaptoparquet_mcp tests pcaptoparquet_cli.py test_cli
+	$(MYPY) pcaptoparquet pcaptoparquet_mcp tests pcaptoparquet_cli.py test_cli
 
 fix: venv
-	$(BLACK) pcaptoparquet tests pcaptoparquet_cli.py test_cli
-	$(ISORT) pcaptoparquet tests pcaptoparquet_cli.py test_cli
+	$(BLACK) pcaptoparquet pcaptoparquet_mcp tests pcaptoparquet_cli.py test_cli
+	$(ISORT) pcaptoparquet pcaptoparquet_mcp tests pcaptoparquet_cli.py test_cli
 
 test: venv
 	$(TOX)
 
 coverage: venv
-	. $(VENV_DIR)/bin/activate && $(COVERAGE) run --source=pcaptoparquet --module pytest --verbose tests
+	. $(VENV_DIR)/bin/activate && $(COVERAGE) run --source=pcaptoparquet,pcaptoparquet_mcp --module pytest --verbose tests
 	$(COVERAGE) report --show-missing
 	$(COVERAGE) html
 

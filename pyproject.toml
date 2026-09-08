@@ -31,8 +31,12 @@ Issues = "https://github.com/nokia/pcaptoparquet/issues"
 
 [project.scripts]
 pcaptoparquet = "pcaptoparquet_cli:main"
+pcaptoparquet-mcp = "pcaptoparquet_mcp.server:main"
 
 [project.optional-dependencies]
+mcp = [
+    "mcp==2.1.1",
+]
 dev = [
     "black==26.5.1",
     "isort==9.0.1",
@@ -45,17 +49,21 @@ dev = [
     "build==1.6.0",
     "twine==7.0.0",
     "pyinstaller==6.22.2",
+    "mcp==2.1.1",
 ]
 
 [tool.setuptools]
 py-modules = ["pcaptoparquet_cli"]
-packages = ["pcaptoparquet"]
+packages = ["pcaptoparquet", "pcaptoparquet_mcp"]
+
+[tool.setuptools.package-data]
+pcaptoparquet_mcp = ["data/schema.md"]
 
 [tool.tox]
 envlist = ["py311"]
 
 [tool.tox.env.py311]
-deps = ["pytest==9.1.1"]
+deps = ["pytest==9.1.1", "mcp==2.1.1"]
 commands = [
   ["pytest", "tests/"],
 ]
@@ -76,7 +84,7 @@ line-length = 88
 
 [tool.isort]
 profile = "black"
-src_paths = ["pcaptoparquet", "tests"]
+src_paths = ["pcaptoparquet", "pcaptoparquet_mcp", "tests"]
 
 [tool.mypy]
 ignore_missing_imports = true

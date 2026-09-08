@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "pcaptoparquet": {
+      "command": "<repo>/venv_build/bin/pcaptoparquet-mcp",
+      "args": ["--parquet-dir", "<parquet-dir>"]
+    }
+  }
+}

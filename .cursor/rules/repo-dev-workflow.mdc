@@ -21,7 +21,7 @@ Use the root **Makefile** as the canonical way to install dev tooling and run th
 | **mypy** | Static types (`strict`; see `pyproject.toml`). |
 | **Pyright** | Additional type checking (`basic` mode in config). |
 
-`make check` and `make fix` cover `pcaptoparquet`, `tests`, `pcaptoparquet_cli.py`, and `test_cli`.
+`make check` and `make fix` cover `pcaptoparquet`, `pcaptoparquet_mcp`, `tests`, `pcaptoparquet_cli.py`, and `test_cli`.
 
 Use **`make fix`** for Black + isort auto-fixes on those paths. A formatter pin bump that rewrites the tree should be its own change, not mixed into a feature diff.
 

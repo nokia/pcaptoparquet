@@ -35,6 +35,19 @@ pcaptoparquet -h
 
 **Note 3**: L2TP (v2/v3) and GRE tunnel unwrapping is experimental. GTP-U and VxLAN remain the supported tunnel types. L2TP/GRE is validated with synthetic unit tests, not production BRAS captures; cookie and payload heuristics may miss or mis-label sessions, and the `tunnel` field layout for these types may change.
 
+### MCP server (optional)
+
+The `pcaptoparquet_mcp` extra is a packet-aware [MCP](https://modelcontextprotocol.io/) server over a directory of Parquet files this converter already wrote. It does not convert PCAPs. Query tools require a capture path relative to that directory (one file or a subdirectory).
+
+```sh
+pip install 'pcaptoparquet[mcp]'
+pcaptoparquet-mcp --parquet-dir /path/to/parquets
+```
+
+`make venv` installs the same SDK pin via the `dev` extra. Point an MCP host at `venv_build/bin/pcaptoparquet-mcp` as in [`pcaptoparquet_mcp/mcp.json.example`](pcaptoparquet_mcp/mcp.json.example). The data directory can also be `PCAPTOPARQUET_PARQUET_DIR`.
+
+Stdout is the MCP protocol; logs go to stderr. Tool results (addresses, SNI, DNS, URLs) are sent to the model. Production captures may be unfit for cloud agents. The PyInstaller `make standalone` binary remains converter-only.
+
 ### Programming Interface
 
 The `pcaptoparquet` package provides the `E2EPcap` class for converting pcap files to different formats. Here's how you can use it:
@@ -141,11 +154,11 @@ The `pcaptoparquet` project uses several tools to ensure code quality:
 You can run these checks using the following commands:
 
 ```sh
-black --check pcaptoparquet tests pcaptoparquet_cli.py test_cli
-isort --check-only pcaptoparquet tests pcaptoparquet_cli.py test_cli
-pyright pcaptoparquet tests pcaptoparquet_cli.py test_cli
-ruff check pcaptoparquet tests pcaptoparquet_cli.py test_cli
-mypy pcaptoparquet tests pcaptoparquet_cli.py test_cli
+black --check pcaptoparquet pcaptoparquet_mcp tests pcaptoparquet_cli.py test_cli
+isort --check-only pcaptoparquet pcaptoparquet_mcp tests pcaptoparquet_cli.py test_cli
+pyright pcaptoparquet pcaptoparquet_mcp tests pcaptoparquet_cli.py test_cli
+ruff check pcaptoparquet pcaptoparquet_mcp tests pcaptoparquet_cli.py test_cli
+mypy pcaptoparquet pcaptoparquet_mcp tests pcaptoparquet_cli.py test_cli
 ```
 
 or

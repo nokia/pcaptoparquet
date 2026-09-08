@@ -26,6 +26,8 @@ AI guidance for this repository lives under **`.cursor/rules/`** (behavior) and 
 | `repo-dev-workflow.mdc` | Makefile, `venv_build`, `make check` / `make test` |
 | `repo-python-stack.mdc` | This repo's pyproject snapshot |
 
+The packet-aware MCP companion lives in `pcaptoparquet_mcp/` (optional extra `mcp`). Conversion code stays in `pcaptoparquet/`.
+
 ### Skills
 
 | Folder | Scope |

@@ -28,6 +28,7 @@ Run the listed files (or narrower `-k` filters) for the area you changed. If mul
 | `pcaptoparquet/e2e_ping.py`, `e2e_dns.py`, `e2e_http.py`, `e2e_https.py` | `tests/test_module.py` tests under `05_applications/` |
 | `pcaptoparquet/e2e_pcap.py`, `e2e_parallel.py`, `e2e_config.py` | `tests/test_module.py` (functional captures) |
 | `pcaptoparquet_cli.py`, `pcaptoparquet/e2e_cli.py` | `test_cli/test_cli.py` |
+| `pcaptoparquet_mcp/*.py` | `tests/test_mcp_queries.py`, `tests/test_mcp_server.py` |
 | `tests/config/modules/*.py` | matching `test_module.py` captures that pass `--config` / `E2EConfig(configpath=...)` |
 
 Example targeted run:
