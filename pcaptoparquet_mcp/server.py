@@ -10,12 +10,12 @@ import argparse
 import logging
 import os
 import sys
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from pcaptoparquet_mcp import prompts, queries, resources
 from pcaptoparquet_mcp.catalog import CatalogError, ParquetCatalog
+from pcaptoparquet_mcp.frames import FrameStore, FrameTable
 
 _LOG = logging.getLogger("pcaptoparquet_mcp")
 
@@ -24,20 +24,73 @@ def build_parser() -> argparse.ArgumentParser:
     """CLI for the stdio server."""
     parser = argparse.ArgumentParser(
         prog="pcaptoparquet-mcp",
-        description=(
-            "Packet-aware MCP server for a directory of pcaptoparquet Parquet files."
-        ),
+        description="Read-only Polars MCP server for pcaptoparquet Parquet files.",
     )
     parser.add_argument(
         "--parquet-dir",
         default=os.environ.get("PCAPTOPARQUET_PARQUET_DIR"),
-        help=("Directory of Parquet files. " "Defaults to PCAPTOPARQUET_PARQUET_DIR."),
+        help=("Directory of Parquet files. Defaults to PCAPTOPARQUET_PARQUET_DIR."),
     )
     return parser
 
 
-def _tool_error(exc: BaseException) -> str:
-    return f"error: {exc}"
+def run_capture(
+    catalog: ParquetCatalog,
+    store: FrameStore,
+    *,
+    capture: str,
+    plan: Any = None,
+    preset: Optional[str] = None,
+    args: Any = None,
+    explain: bool = False,
+    frame_id: Optional[str] = None,
+) -> dict[str, Any]:
+    """Execute a plan or preset; store a successful frame for frame_id continue."""
+    joinable = False
+    if frame_id:
+        stored = store.get(str(frame_id))
+        if stored is None:
+            return queries.error_envelope("unknown or expired frame_id")
+        if stored.capture != capture:
+            return queries.error_envelope("frame_id does not belong to this capture")
+        lf = store.as_lazy(stored)
+        packets_lf = stored.packets_lf
+        joinable = stored.joinable
+    else:
+        try:
+            lf = catalog.scan(capture)
+        except CatalogError as exc:
+            return queries.error_envelope(str(exc))
+        except Exception as exc:
+            _LOG.exception("scan failed")
+            return queries.error_envelope(str(exc))
+        packets_lf = lf
+    outcome = queries.run_plan(
+        lf,
+        plan=plan,
+        preset=preset,
+        args=args,
+        packets_lf=packets_lf,
+        explain=explain,
+        joinable=joinable,
+    )
+    envelope = outcome.envelope
+    if "error" in envelope:
+        return envelope
+    current: Optional[FrameTable]
+    if outcome.result_lf is not None:
+        current = outcome.result_lf
+    else:
+        current = outcome.collected
+    if current is None:
+        return envelope
+    envelope["frame_id"] = store.put(
+        capture=capture,
+        packets_lf=packets_lf,
+        current=current,
+        joinable=outcome.joinable,
+    )
+    return envelope
 
 
 def build_server(catalog: ParquetCatalog) -> Any:
@@ -46,112 +99,51 @@ def build_server(catalog: ParquetCatalog) -> Any:
         from mcp.server import MCPServer
     except ImportError as exc:
         raise ImportError(
-            "The MCP SDK is required. Install with: " "pip install 'pcaptoparquet[mcp]'"
+            "The MCP SDK is required. Install with: pip install 'pcaptoparquet[mcp]'"
         ) from exc
 
     mcp = MCPServer("pcaptoparquet")
-
-    def _query(capture: str, fn: Callable[..., str], **kwargs: Any) -> str:
-        try:
-            lf = catalog.scan(capture)
-            return fn(lf, **kwargs)
-        except (CatalogError, ValueError) as exc:
-            return _tool_error(exc)
-        except Exception as exc:
-            _LOG.exception("query failed")
-            return _tool_error(exc)
+    store = FrameStore()
 
     @mcp.tool()
     def list_captures() -> str:
-        """List relative Parquet paths, size, mtime, and row counts."""
+        """List relative Parquet paths, size, mtime, and metadata row counts."""
         try:
             return queries.frame_to_csv(catalog.list_captures())
         except CatalogError as exc:
-            return _tool_error(exc)
+            return queries.dumps_envelope({"error": str(exc)})
 
     @mcp.tool()
-    def summarize_capture(capture: str, group_limit: Optional[int] = None) -> str:
-        """Time range, packet count, protocol mix, tunnels, top talkers.
-
-        capture is a path relative to the Parquet directory (file or subdirectory).
-        """
-        return _query(capture, queries.summarize_capture, group_limit=group_limit)
-
-    @mcp.tool()
-    def list_flows(capture: str, group_limit: Optional[int] = None) -> str:
-        """Top flows by packet count (5-tuple plus transport_cid when set).
-
-        transport_pkn is not a flow key. capture is relative to the Parquet directory.
-        """
-        return _query(capture, queries.list_flows, group_limit=group_limit)
-
-    @mcp.tool()
-    def filter_packets(
+    def run(
         capture: str,
-        ip_src: Optional[str] = None,
-        ip_dst: Optional[str] = None,
-        transport_src_port: Optional[int] = None,
-        transport_dst_port: Optional[int] = None,
-        app_type: Optional[str] = None,
-        transport_type: Optional[str] = None,
-        e2e_sni: Optional[str] = None,
-        time_from: Optional[datetime] = None,
-        time_to: Optional[datetime] = None,
-        limit: Optional[int] = None,
+        plan: Optional[Any] = None,
+        preset: Optional[str] = None,
+        args: Optional[Any] = None,
+        explain: bool = False,
+        frame_id: Optional[str] = None,
     ) -> str:
-        """Filter packets with allowlisted predicates. Returns a column subset.
+        """Lazy Polars plan or preset on one capture (schema.md / PACKET_COLUMNS).
 
-        capture is a path relative to the Parquet directory (file or subdirectory).
+        Ops: filter, with_columns, select, unique, sort, group_by, join_packets,
+        join, from_frame, head. Arithmetic add/sub/mul/div; total_ms. Named plan
+        frames (max 4) then join. Presets: summarize_capture, list_flows, sni_table,
+        filter_packets, tcp_setup, app_messages, quic_initials, endpoints,
+        conversations, io_stat. Prefer one run after list_captures. Extra tags
+        (filename, path, …) are kept up to 16. Packet-shaped data is a 5-row
+        preview (head to see more, cap 200); aggregates cap 5000; JSON 32KiB;
+        30s collect timeout. frame_id continues a stored result of this capture.
         """
-        return _query(
-            capture,
-            queries.filter_packets,
-            ip_src=ip_src,
-            ip_dst=ip_dst,
-            transport_src_port=transport_src_port,
-            transport_dst_port=transport_dst_port,
-            app_type=app_type,
-            transport_type=transport_type,
-            e2e_sni=e2e_sni,
-            time_from=time_from,
-            time_to=time_to,
-            limit=limit,
+        payload = run_capture(
+            catalog,
+            store,
+            capture=capture,
+            plan=plan,
+            preset=preset,
+            args=args,
+            explain=explain,
+            frame_id=frame_id,
         )
-
-    @mcp.tool()
-    def sni_table(capture: str, group_limit: Optional[int] = None) -> str:
-        """Non-null e2e_sni values. TLS ClientHello and IETF QUIC v1 Initial only."""
-        return _query(capture, queries.sni_table, group_limit=group_limit)
-
-    @mcp.tool()
-    def app_messages(capture: str, limit: Optional[int] = None) -> str:
-        """DNS and HTTP app_request / app_response rows."""
-        return _query(capture, queries.app_messages, limit=limit)
-
-    @mcp.tool()
-    def tcp_setup(
-        capture: str,
-        syn: Optional[bool] = None,
-        ack: Optional[bool] = None,
-        rst: Optional[bool] = None,
-        fin: Optional[bool] = None,
-        limit: Optional[int] = None,
-    ) -> str:
-        """TCP rows by SYN/ACK/RST/FIN booleans (not a flags bitmask). Default SYN."""
-        return _query(
-            capture,
-            queries.tcp_setup,
-            syn=syn,
-            ack=ack,
-            rst=rst,
-            fin=fin,
-            limit=limit,
-        )
-
-    @mcp.tool()
-    def quic_initials(capture: str, limit: Optional[int] = None) -> str:
-        """Rows with transport_pkn set. Short-header QUIC packet numbers are absent."""
-        return _query(capture, queries.quic_initials, limit=limit)
+        return queries.dumps_envelope(payload)
 
     @mcp.resource("pcaptoparquet://schema")
     def schema_resource() -> str:
@@ -165,18 +157,28 @@ def build_server(catalog: ParquetCatalog) -> Any:
 
     @mcp.prompt()
     def diagnose_tcp_setup() -> str:
-        """Workflow for TCP handshake failures."""
+        """One run() plan for TCP handshake flags."""
         return prompts.TCP_SETUP
 
     @mcp.prompt()
     def sni_in_capture() -> str:
-        """Workflow for listing SNI in a capture."""
+        """One run() plan for listing SNI."""
         return prompts.SNI_IN_CAPTURE
 
     @mcp.prompt()
     def traffic_mix() -> str:
-        """Workflow for transport and application mix."""
+        """One run() plan for transport and application mix."""
         return prompts.TRAFFIC_MIX
+
+    @mcp.prompt()
+    def group_then_join() -> str:
+        """One run() plan that groups, then joins back to packets."""
+        return prompts.GROUP_THEN_JOIN
+
+    @mcp.prompt()
+    def who_talks() -> str:
+        """One run() preset for endpoints or conversations."""
+        return prompts.WHO_TALKS
 
     return mcp
 

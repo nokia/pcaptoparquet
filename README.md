@@ -37,7 +37,29 @@ pcaptoparquet -h
 
 ### MCP server (optional)
 
-The `pcaptoparquet_mcp` extra is a packet-aware [MCP](https://modelcontextprotocol.io/) server over a directory of Parquet files this converter already wrote. It does not convert PCAPs. Query tools require a capture path relative to that directory (one file or a subdirectory).
+The `pcaptoparquet_mcp` extra is a read-only [MCP](https://modelcontextprotocol.io/) Polars engine over a directory of Parquet files this converter already wrote. It does not convert PCAPs.
+
+This is a **breaking change** from both the named-analysis menu and from `query(sql)`. Hosts should call `list_captures` once, then **one** `run`. Wall clock follows MCP round trips (Composer turns), not how many packets were scanned.
+
+It is a guardrail and a query shape, not a faster Polars. If you can run a local script against the Parquet, do that: in-process Polars will almost always win on wall clock. Use the MCP when the host has no shell (or you do not want the model writing Python against a capture directory), when you need a read-only, path-confined engine (stdout is protocol; no PCAP conversion, UDFs, or joins across files), or when the question is schema-shaped (`PACKET_COLUMNS`, SNI caveats, TCP flags as booleans) and the *answer* is a small table (mix, SNI, endpoints, distinct IPs). Token cost can track that table; a million-row scan can stay on the server.
+
+It feels slow when the agent issues many `run`s. Each call is a round trip plus a model turn; the first collect on a large capture is still a Parquet scan with a 30s ceiling (timed-out workers are not cancelled). Peeking at packets, retrying on timeout, or sending twenty plans recreates a long debug loop. `frame_id` only helps after a successful aggregate is already in memory.
+
+- `list_captures` — relative path, size, mtime, and row count (Parquet metadata via Polars).
+- `run(capture, plan=…)` — JSON steps (`filter`, `with_columns`, `select`, `unique`, `sort`, `group_by`, `join_packets`, `join`, `from_frame`, `head`) on one relative capture. Expressions include arithmetic (`add`/`sub`/`mul`/`div`; `/0` is null) and `total_ms` (datetime or duration → milliseconds). Named `frames` (max 4) are sibling aggregates from the same input; `join` combines them (`on` or `left_on`+`right_on`). Extra CLI tag columns (`filename`, `path`, and up to 16 others; nested/list/binary skipped) are queryable. `join_packets` attaches a same-capture `group_by`/`unique` back onto packets (not a second file, not a `num` self-join). After `join_packets`, reduce with `unique`/`group_by` so `num` is gone if you need a full distinct list.
+- `run(capture, preset=…)` — mix/SNI/samples and tshark-style aggregations: `summarize_capture`, `list_flows`, `sni_table`, `filter_packets`, `tcp_setup`, `app_messages`, `quic_initials`, `endpoints`, `conversations`, `io_stat`. `bytes` columns are `sum(ip_len)` when present. `io_stat` buckets are chronological; `group_limit` drops later time (`truncated`). Top destination ports and counted `app_request` strings are a one-step `plan`, not extra presets:
+
+```json
+{"steps": [
+  {"op": "group_by", "keys": ["transport_dst_port"],
+   "agg": [{"op": "len", "alias": "n"}]},
+  {"op": "sort", "by": ["n"], "descending": true}
+]}
+```
+
+Anything else is one `plan`.
+
+Results are JSON: `columns`, `data`, `truncated`, `returned_rows` (and `plan` when `explain` is true). Success also includes `frame_id` (pass it on a later `run` of the same capture to continue; aggregates stay in memory and are not rescanned). `n_rows` is the collected total when this call was not truncated. Packet-shaped tables (`num` still present) default to a **5-row** preview (`head` to see more, never more than 200). Aggregates and distinct lists (`num` absent) return the full small table, cap 5000 rows and 32KiB. Collect may time out after 30s; the error includes a clipped `explain` plan when available; the worker is not cancelled and must not block the next call.
 
 ```sh
 pip install 'pcaptoparquet[mcp]'

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,64 +14,14 @@ from typing import Any
 
 import polars as pl
 
-CORE_COLUMNS = ("num", "utc_date_time")
-PACKET_COLUMNS = CORE_COLUMNS + (
-    "eth_src",
-    "eth_dst",
-    "eth_vlan_tags",
-    "eth_mpls_labels",
-    "tunnel",
-    "ip_version",
-    "ip_src",
-    "ip_dst",
-    "ip_dscp",
-    "ip_ecn",
-    "ip_id",
-    "ip_ttl",
-    "ip_len",
-    "ip_frag",
-    "esp_spi",
-    "esp_seq",
-    "transport_type",
-    "transport_header_len",
-    "transport_options_len",
-    "transport_data_len",
-    "transport_capture_len",
-    "transport_src_port",
-    "transport_dst_port",
-    "transport_fin_flag",
-    "transport_syn_flag",
-    "transport_ack_flag",
-    "transport_rst_flag",
-    "transport_push_flag",
-    "transport_urg_flag",
-    "transport_ece_flag",
-    "transport_cwr_flag",
-    "transport_ns_flag",
-    "transport_seq",
-    "transport_ack",
-    "transport_win",
-    "transport_mss",
-    "transport_wscale",
-    "transport_sackok",
-    "transport_sack_1_from",
-    "transport_sack_1_to",
-    "transport_sack_2_from",
-    "transport_sack_2_to",
-    "transport_sack_3_from",
-    "transport_sack_3_to",
-    "transport_tsval",
-    "transport_tsecr",
-    "transport_spin",
-    "transport_cid",
-    "transport_pkn",
-    "e2e_sni",
-    "app_type",
-    "app_session",
-    "app_seq",
-    "app_request",
-    "app_response",
-)
+from pcaptoparquet.e2e_packet import E2EPacket
+
+CORE_COLUMNS = E2EPacket.prefix_columns()
+PACKET_COLUMNS = E2EPacket.parquet_columns()
+MAX_EXTRA_COLUMNS = 16
+PREFERRED_EXTRA_COLUMNS = ("filename", "path")
+
+_LOG = logging.getLogger("pcaptoparquet_mcp")
 
 
 class CatalogError(ValueError):
@@ -129,6 +80,7 @@ class ParquetCatalog:
             stat = path.stat()
             mtime = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
             try:
+                # Polars COUNT/len on a parquet scan uses file metadata, not page decode.
                 num_rows = int(pl.scan_parquet(path).select(pl.len()).collect().item())
             except Exception:
                 num_rows = None
@@ -152,14 +104,14 @@ class ParquetCatalog:
         return pl.DataFrame(rows)
 
     def scan(self, capture: str) -> pl.LazyFrame:
-        """Lazy-scan Parquet for one capture; extra columns are ignored."""
+        """Lazy-scan Parquet; keep packet columns plus a few extra tags."""
         paths = self.parquet_paths(capture)
         lf = pl.scan_parquet(
             [str(p) for p in paths],
-            extra_columns="ignore",
             missing_columns="insert",
         )
-        names = lf.collect_schema().names()
+        schema = lf.collect_schema()
+        names = schema.names()
         missing = [col for col in CORE_COLUMNS if col not in names]
         if missing:
             raise CatalogError(
@@ -168,4 +120,34 @@ class ParquetCatalog:
                 + "); expected a pcaptoparquet packet table"
             )
         keep = [col for col in PACKET_COLUMNS if col in names]
-        return lf.select(keep)
+        extras = [col for col in names if col not in PACKET_COLUMNS]
+        usable: list[str] = []
+        dropped: list[str] = []
+        for col in extras:
+            if _skip_extra_dtype(schema[col]):
+                dropped.append(col)
+                continue
+            usable.append(col)
+        preferred = [col for col in PREFERRED_EXTRA_COLUMNS if col in usable]
+        rest = [col for col in usable if col not in preferred]
+        chosen = (preferred + rest)[:MAX_EXTRA_COLUMNS]
+        overflow = preferred + rest
+        if len(overflow) > MAX_EXTRA_COLUMNS:
+            dropped.extend(overflow[MAX_EXTRA_COLUMNS:])
+        if dropped:
+            _LOG.info(
+                "dropped %s extra column(s) on scan: %s",
+                len(dropped),
+                ", ".join(dropped),
+            )
+        return lf.select(keep + chosen)
+
+
+def _skip_extra_dtype(dtype: pl.DataType) -> bool:
+    """Skip nested, list, and binary extras so payloads stay off the prompt."""
+    if dtype == pl.Binary or dtype == pl.Object:
+        return True
+    is_nested = getattr(dtype, "is_nested", None)
+    if callable(is_nested) and is_nested():
+        return True
+    return False

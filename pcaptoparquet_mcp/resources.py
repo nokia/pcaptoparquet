@@ -19,8 +19,15 @@ pcaptoparquet Parquet glossary
 - transport_spin: QUIC short-header spin bit.
 - e2e_sni: SNI from TLS ClientHello and IETF QUIC v1 Initial CRYPTO frames only.
 - tunnel: GTP-U and VxLAN when present. L2TPv2, L2TPv3, and GRE are experimental.
-- Query tools require a capture path relative to the Parquet directory (one
-  file or a subdirectory). There is no whole-tree union.
+- run() executes one Polars JSON plan (or a named preset) on one relative
+  capture (file or subdirectory). Extra parquet tags (filename, path, and up
+  to 16 others) are queryable. There is no whole-tree union. Prefer one run
+  after list_captures. Packet-shaped results (num still present) return a
+  5-row sample unless you pass head (cap 200). Aggregates and distinct lists
+  return the full small table (cap 5000, 32KiB). Success includes frame_id;
+  pass it on the next run to continue without rescanning an aggregate.
+  Presets include endpoints, conversations, and io_stat (tshark -z analogues).
+  When a bytes column is present it is sum(ip_len), not frame wire bytes.
 """
 
 

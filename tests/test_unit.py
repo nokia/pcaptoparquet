@@ -45,6 +45,16 @@ class TestE2EPacket(unittest.TestCase):
         self.assertEqual(dtypes["num"], "UInt32")
         self.assertEqual(dtypes["utc_date_time"], "datetime64[ns, UTC]")
 
+    def test_parquet_columns_match_schema_prefix(self) -> None:
+        """MCP catalog columns come from E2EPacket, not a second list."""
+        self.assertEqual(E2EPacket.prefix_columns(), ("num", "utc_date_time"))
+        columns = E2EPacket.parquet_columns()
+        self.assertEqual(columns[:2], ("num", "utc_date_time"))
+        self.assertIn("eth_src", columns)
+        self.assertIn("app_response", columns)
+        self.assertNotIn("error", columns)
+        self.assertNotIn("error_message", columns)
+
     def test_create_empty_attr(self) -> None:
         """
         Test create_empty_attr method

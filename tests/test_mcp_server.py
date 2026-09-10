@@ -6,8 +6,10 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import anyio
 import polars as pl
@@ -24,8 +26,18 @@ def _minimal_parquet(path: Path) -> None:
         {
             "num": [1],
             "utc_date_time": [datetime(2024, 1, 1, tzinfo=timezone.utc)],
+            "transport_type": ["TCP"],
         }
     ).write_parquet(path)
+
+
+def _tool_text(result: Any) -> str:
+    content = result.content
+    if isinstance(content, list) and content:
+        text = getattr(content[0], "text", None)
+        if text is not None:
+            return str(text)
+    return str(content)
 
 
 def test_parser_requires_dir_via_main(
@@ -54,21 +66,68 @@ def test_server_tools_and_resources(tmp_path: Path) -> None:
         async with Client(server) as client:
             tools = await client.list_tools()
             names = sorted(tool.name for tool in tools.tools)
-            assert names == [
-                "app_messages",
-                "filter_packets",
-                "list_captures",
-                "list_flows",
-                "quic_initials",
-                "sni_table",
-                "summarize_capture",
-                "tcp_setup",
-            ]
+            assert names == ["list_captures", "run"]
             listed = await client.call_tool("list_captures", {})
-            text = str(listed.content)
-            assert "cap.parquet" in text
+            assert "cap.parquet" in _tool_text(listed)
+            counted = await client.call_tool(
+                "run",
+                {
+                    "capture": "cap.parquet",
+                    "plan": {
+                        "steps": [
+                            {
+                                "op": "group_by",
+                                "keys": ["transport_type"],
+                                "agg": [{"op": "len", "alias": "n"}],
+                            }
+                        ]
+                    },
+                },
+            )
+            payload = json.loads(_tool_text(counted))
+            assert payload["data"][0][1] == 1
+            assert payload["truncated"] is False
+            assert "frame_id" in payload
+            continued = await client.call_tool(
+                "run",
+                {
+                    "capture": "cap.parquet",
+                    "frame_id": payload["frame_id"],
+                    "plan": {
+                        "steps": [
+                            {"op": "sort", "by": ["n"], "descending": True},
+                            {"op": "head", "n": 1},
+                        ]
+                    },
+                },
+            )
+            cont = json.loads(_tool_text(continued))
+            assert "error" not in cont
+            assert cont["returned_rows"] == 1
+            assert "frame_id" in cont
+            unknown = await client.call_tool(
+                "run",
+                {
+                    "capture": "cap.parquet",
+                    "frame_id": "deadbeefdeadbeef",
+                    "plan": {"steps": []},
+                },
+            )
+            assert "error" in json.loads(_tool_text(unknown))
+            preset = await client.call_tool(
+                "run",
+                {"capture": "cap.parquet", "preset": "summarize_capture"},
+            )
+            assert "packet_count" in _tool_text(preset)
+            denied = await client.call_tool(
+                "run",
+                {
+                    "capture": "../secret.parquet",
+                    "plan": {"steps": []},
+                },
+            )
+            assert "error" in json.loads(_tool_text(denied))
             schema = await client.read_resource("pcaptoparquet://schema")
-            schema_text = str(schema)
-            assert "transport_pkn" in schema_text
+            assert "transport_pkn" in str(schema)
 
     anyio.run(_check)

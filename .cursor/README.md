@@ -1,6 +1,9 @@
 # Cursor rules and skills
 
-AI guidance for this repository lives under **`.cursor/rules/`** (behavior) and **`.cursor/skills/`** (workflows). This tree is specific to **pcaptoparquet**, the open-source PCAP-to-parquet converter.
+AI guidance for this repository lives under **`.cursor/rules/`** (behavior),
+**`.cursor/skills/`** (workflows), and **`.cursor/prompts/`** (paste-in agent
+tasks for larger MCP/engine changes). This tree is specific to
+**pcaptoparquet**, the open-source PCAP-to-parquet converter.
 
 ## Naming: `global-` vs `repo-`
 
@@ -39,3 +42,10 @@ The packet-aware MCP companion lives in `pcaptoparquet_mcp/` (optional extra `mc
 | `repo-protocol-decoder/` | Built-in and extension protocol `decode` modules |
 
 Keep **README.md** and the **Makefile** aligned with `repo-dev-workflow` when adding official checks or test targets.
+
+### Prompts
+
+| File | Scope |
+|------|-------|
+| `prompts/mcp-general-query-engine.md` | Polars MCP: `list_captures` + `run(plan\|preset)`, not SQL, not a tool per study |
+| `prompts/mcp-session-frames.md` | Next slice: keep LazyFrames on the server; preview envelope; arithmetic; aggregate⋈aggregate; timeout+explain |

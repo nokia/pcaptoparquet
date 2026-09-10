@@ -215,6 +215,19 @@ class E2EPacket:
             dtypes[field_name] = field_type
         return dtypes
 
+    @classmethod
+    def prefix_columns(cls) -> tuple[str, ...]:
+        """Packet identity columns (num, utc_date_time)."""
+        return tuple(cls._prefix_meta.keys())
+
+    @classmethod
+    def parquet_columns(cls) -> tuple[str, ...]:
+        """schema.md packet columns. Omits error_* and extra CLI tags."""
+        skipped = frozenset({"error", "error_message"})
+        return cls.prefix_columns() + tuple(
+            name for name in cls._decoder_meta if name not in skipped
+        )
+
     def __str__(self) -> str:
         """
         Returns the packet as a string representation.

@@ -2,7 +2,8 @@
   "mcpServers": {
     "pcaptoparquet": {
       "command": "<repo>/venv_build/bin/pcaptoparquet-mcp",
-      "args": ["--parquet-dir", "<parquet-dir>"]
+      "args": ["--parquet-dir", "<parquet-dir>"],
+      "description": "list_captures then run(plan|preset). Optional frame_id continues a stored result (same capture). Packet-shaped data is a 5-row preview (head to see more, cap 200); aggregates return the full small table (cap 5000, 32KiB). Extra parquet tags filename/path are queryable. Stdout is MCP protocol."
     }
   }
 }
