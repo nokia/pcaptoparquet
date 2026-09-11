@@ -12,7 +12,7 @@ COVERAGE = $(VENV_DIR)/bin/coverage
 PYINSTALLER = $(VENV_DIR)/bin/pyinstaller
 
 # Targets
-.PHONY: all venv check test coverage build clean clean-venv clean-check clean-test clean-coverage clean-build
+.PHONY: all venv check test coverage build publish clean clean-venv clean-check clean-test clean-coverage clean-build clean-publish
 
 all: venv check test build #publish
 
@@ -50,7 +50,7 @@ standalone: venv
 install: build
 	$(PIP) install .
 
-publish: build
+publish: clean-build build
 	$(PYTHON) -m twine upload dist/*
 
 clean: clean-venv clean-check clean-test clean-coverage clean-build clean-publish
