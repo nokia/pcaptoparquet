@@ -120,8 +120,10 @@ class E2EConfig:
 
         # First initialize PING, DNS, HTTP, HTTPS and QUIC
         # with default ports and processing functions
-        # ICMP - ICMP6 Transport
+        # Separate slots so ICMP and ICMP6 can be replaced independently.
+        # Both default to the ping decoder.
         transportport_to_protocol["ICMP"] = ProtocolDecoder(e2e_ping.decode)
+        transportport_to_protocol["ICMP6"] = ProtocolDecoder(e2e_ping.decode)
 
         applications = ("PING", "DNS", "HTTP", "HTTPS", "QUIC")
 

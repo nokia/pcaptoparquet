@@ -930,8 +930,10 @@ class E2EPacket:
             appdata = None
 
             # Transport Port Callback
-            if self.transport_type == "ICMP":
-                appdata = transport_port_cb["ICMP"].decode(self, transport, app)
+            if self.transport_type in ("ICMP", "ICMP6"):
+                appdata = transport_port_cb[self.transport_type].decode(
+                    self, transport, app
+                )
             elif self.transport_type in ("UDP", "TCP", "SCTP"):
                 p = min(self.transport_src_port, self.transport_dst_port)
                 if p in transport_port_cb[self.transport_type] and p > 0:

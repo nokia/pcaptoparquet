@@ -1,10 +1,14 @@
 import datetime
+import socket
 import struct
 import unittest
+from typing import Any, Optional
 from unittest.mock import MagicMock
 
 import dpkt
 
+from pcaptoparquet import e2e_ping
+from pcaptoparquet.e2e_config import E2EConfig, ProtocolDecoder
 from pcaptoparquet.e2e_packet import E2EPacket
 
 
@@ -167,6 +171,69 @@ class TestE2EPacket(unittest.TestCase):
         self.assertEqual(packet.decode_sack(two), (10, 20, 30, 40, None, None))
         three = struct.pack("!IIIIII", 10, 20, 30, 40, 50, 60)
         self.assertEqual(packet.decode_sack(three), (10, 20, 30, 40, 50, 60))
+
+    def test_icmp6_echo_is_ping(self) -> None:
+        """ICMPv6 echo request and reply are labeled PING."""
+        cb = E2EConfig().get_transport_port_cb()
+        request = self._packet_from_eth(self._icmp6_echo(128, 0x1234, 7), cb)
+        self.assertEqual(request.transport_type, "ICMP6")
+        self.assertEqual(request.app_type, "PING")
+        self.assertEqual(request.app_session, 0x1234)
+        self.assertEqual(request.app_seq, 7)
+        self.assertEqual(request.transport_cid, 0x1234)
+        self.assertEqual(request.transport_pkn, 7)
+        self.assertEqual(request.app_request, f"ECHO REQUEST {request.ip_len} bytes.")
+        self.assertIsNone(request.app_response)
+
+        reply = self._packet_from_eth(self._icmp6_echo(129, 0x1234, 7), cb)
+        self.assertEqual(reply.transport_type, "ICMP6")
+        self.assertEqual(reply.app_type, "PING")
+        self.assertEqual(reply.app_response, f"ECHO REPLY {reply.ip_len} bytes.")
+        self.assertIsNone(reply.app_request)
+
+        self.assertIsNot(cb["ICMP"], cb["ICMP6"])
+        self.assertIs(cb["ICMP"].decode, e2e_ping.decode)
+        self.assertIs(cb["ICMP6"].decode, e2e_ping.decode)
+
+        def skip_decode(_packet: Any, _transport: Any, _app: Any) -> Optional[bytes]:
+            return None
+
+        cb["ICMP6"] = ProtocolDecoder(skip_decode)
+        skipped = self._packet_from_eth(self._icmp6_echo(128, 0x1234, 7), cb)
+        self.assertEqual(skipped.transport_type, "ICMP6")
+        self.assertIsNone(skipped.app_type)
+        self.assertIs(cb["ICMP"].decode, e2e_ping.decode)
+
+    @staticmethod
+    def _icmp6_echo(icmp_type: int, ident: int, seq: int) -> dpkt.ethernet.Ethernet:
+        echo = dpkt.icmp6.ICMP6.Echo(id=ident, seq=seq, data=b"abcdefgh")
+        icmp6 = dpkt.icmp6.ICMP6(type=icmp_type, code=0, data=echo)
+        ip6 = dpkt.ip6.IP6(
+            src=socket.inet_pton(socket.AF_INET6, "2001:db8::1"),
+            dst=socket.inet_pton(socket.AF_INET6, "2001:db8::2"),
+            nxt=dpkt.ip.IP_PROTO_ICMP6,
+            hlim=64,
+            data=icmp6,
+        )
+        eth = dpkt.ethernet.Ethernet(
+            src=b"\x00\x11\x22\x33\x44\x55",
+            dst=b"\x66\x77\x88\x99\xaa\xbb",
+            type=dpkt.ethernet.ETH_TYPE_IP6,
+            data=ip6,
+        )
+        return dpkt.ethernet.Ethernet(bytes(eth))
+
+    @staticmethod
+    def _packet_from_eth(
+        eth: dpkt.ethernet.Ethernet, transport_port_cb: dict[str, object]
+    ) -> E2EPacket:
+        return E2EPacket(
+            num=1,
+            utc_date_time=datetime.datetime.now(datetime.timezone.utc),
+            eth=eth,
+            outerip=None,
+            transport_port_cb=transport_port_cb,
+        )
 
 
 if __name__ == "__main__":
