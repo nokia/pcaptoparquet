@@ -35,6 +35,7 @@ PRESETS = (
     "sni_table",
     "filter_packets",
     "tcp_setup",
+    "tcp_anomalies",
     "app_messages",
     "quic_initials",
     "endpoints",
@@ -64,6 +65,23 @@ JoinHow = Literal["inner", "left", "semi", "anti"]
 T = TypeVar("T")
 PresetResult = tuple[pl.DataFrame, bool]
 DEFAULT_IO_STAT_S = 60.0
+_TUNNEL_TYPE_RE = r"type='([^']+)'"
+_TUNNEL_TOKENS = ("GTP-U", "VxLAN", "L2TPv2", "L2TPv3", "GRE")
+# (transport_type, port, summarize key). Keys are ports, not protocol names.
+WELL_KNOWN_SERVICES: tuple[tuple[str, int, str], ...] = (
+    ("UDP", 53, "udp/53"),
+    ("TCP", 80, "tcp/80"),
+    ("TCP", 443, "tcp/443"),
+    ("TCP", 8080, "tcp/8080"),
+    ("TCP", 5060, "tcp/5060"),
+    ("UDP", 5060, "udp/5060"),
+    ("UDP", 2123, "udp/2123"),
+    ("UDP", 2152, "udp/2152"),
+    ("UDP", 8805, "udp/8805"),
+    ("SCTP", 38412, "sctp/38412"),
+    ("SCTP", 38421, "sctp/38421"),
+    ("SCTP", 3868, "sctp/3868"),
+)
 _ENDPOINT_TYPES = frozenset({"ip", "eth"})
 _CONVERSATION_TYPES = frozenset({"ip", "tcp", "udp", "eth"})
 _JOIN_HOW: frozenset[str] = frozenset({"inner", "left", "semi", "anti"})
@@ -371,6 +389,113 @@ def _append_row(
     values.append(value)
 
 
+def _section_frame(
+    sections: list[str], keys: list[Optional[str]], values: list[str]
+) -> pl.DataFrame:
+    return pl.DataFrame({"section": sections, "key": keys, "value": values})
+
+
+def _utf8(name: str) -> pl.Expr:
+    return pl.col(name).cast(pl.Utf8)
+
+
+def _nonempty_tag(name: str) -> pl.Expr:
+    text = _utf8(name).str.strip_chars()
+    return pl.col(name).is_not_null() & (text != "") & (text != "[]")
+
+
+def _tunnel_type_expr() -> pl.Expr:
+    raw = _utf8("tunnel")
+    stripped = raw.str.strip_chars()
+    extracted = raw.str.extract(_TUNNEL_TYPE_RE, 1)
+    bare = pl.when(stripped.is_in(list(_TUNNEL_TOKENS))).then(stripped)
+    empty = raw.is_null() | (stripped == "") | (stripped == "[]")
+    return (
+        pl.when(empty)
+        .then(pl.lit("none"))
+        .when(extracted.is_not_null() & (extracted != ""))
+        .then(extracted)
+        .when(bare.is_not_null())
+        .then(bare)
+        .otherwise(pl.lit("none"))
+        .alias("tunnel_type")
+    )
+
+
+def _service_map() -> pl.DataFrame:
+    return pl.DataFrame(
+        {
+            "transport_type": [row[0] for row in WELL_KNOWN_SERVICES],
+            "port": [row[1] for row in WELL_KNOWN_SERVICES],
+            "service": [row[2] for row in WELL_KNOWN_SERVICES],
+        }
+    )
+
+
+def _append_mix(
+    sections: list[str],
+    keys: list[Optional[str]],
+    values: list[str],
+    lf: pl.LazyFrame,
+    col: str,
+    n: int,
+) -> bool:
+    mix, truncated = _limit_groups(
+        lf.group_by(col).len().sort("len", descending=True), n
+    )
+    for mix_row in mix.iter_rows(named=True):
+        key = None if mix_row[col] is None else str(mix_row[col])
+        _append_row(sections, keys, values, col, key, str(mix_row["len"]))
+    return truncated
+
+
+def _append_service_mix(
+    sections: list[str],
+    keys: list[Optional[str]],
+    values: list[str],
+    lf: pl.LazyFrame,
+    n: int,
+) -> bool:
+    if not (
+        _has(lf, "transport_type")
+        and _has(lf, "transport_src_port")
+        and _has(lf, "transport_dst_port")
+    ):
+        return False
+    base = lf.select(
+        pl.int_range(pl.len()).alias("_row"),
+        _utf8("transport_type").alias("transport_type"),
+        pl.col("transport_src_port").cast(pl.Int64).alias("src"),
+        pl.col("transport_dst_port").cast(pl.Int64).alias("dst"),
+    )
+    long = pl.concat(
+        [
+            base.select("_row", "transport_type", pl.col("src").alias("port")),
+            base.select("_row", "transport_type", pl.col("dst").alias("port")),
+        ]
+    )
+    joined = long.join(
+        _service_map().lazy(), on=["transport_type", "port"], how="inner"
+    )
+    mix, truncated = _limit_groups(
+        joined.unique(subset=["_row", "service"])
+        .group_by("service")
+        .len()
+        .sort("len", descending=True),
+        n,
+    )
+    for mix_row in mix.iter_rows(named=True):
+        _append_row(
+            sections,
+            keys,
+            values,
+            "service",
+            str(mix_row["service"]),
+            str(mix_row["len"]),
+        )
+    return truncated
+
+
 def _preset_summarize(lf: pl.LazyFrame, args: Mapping[str, Any]) -> PresetResult:
     n = clamp_group_limit(_args_int(args, "group_limit"))
     sections: list[str] = []
@@ -390,6 +515,36 @@ def _preset_summarize(lf: pl.LazyFrame, args: Mapping[str, Any]) -> PresetResult
         stats_exprs.append(pl.col("ip_src").n_unique().alias("ip_src_n"))
     if _has(lf, "ip_dst"):
         stats_exprs.append(pl.col("ip_dst").n_unique().alias("ip_dst_n"))
+    if _has(lf, "ip_frag"):
+        stats_exprs.append(pl.col("ip_frag").eq(True).sum().alias("ip_frag"))
+    if _has(lf, "transport_type"):
+        empty_t = _utf8("transport_type").is_null() | (_utf8("transport_type") == "")
+        stats_exprs.append(empty_t.sum().alias("empty_transport"))
+    if _has(lf, "esp_spi"):
+        stats_exprs.append(pl.col("esp_spi").is_not_null().sum().alias("esp_spi"))
+    if _has(lf, "e2e_sni"):
+        stats_exprs.append(_nonempty_tag("e2e_sni").sum().alias("e2e_sni"))
+    if _has(lf, "eth_vlan_tags"):
+        stats_exprs.append(_nonempty_tag("eth_vlan_tags").sum().alias("vlan"))
+    if _has(lf, "eth_mpls_labels"):
+        stats_exprs.append(_nonempty_tag("eth_mpls_labels").sum().alias("mpls"))
+    if _has(lf, "transport_syn_flag"):
+        syn = pl.col("transport_syn_flag").eq(True)
+        stats_exprs.append(syn.sum().alias("tcp_syn"))
+        if _has(lf, "transport_ack_flag"):
+            synack = syn & pl.col("transport_ack_flag").eq(True)
+            stats_exprs.append(synack.sum().alias("tcp_synack"))
+    if _has(lf, "transport_rst_flag"):
+        stats_exprs.append(pl.col("transport_rst_flag").eq(True).sum().alias("tcp_rst"))
+    if _has(lf, "transport_fin_flag"):
+        stats_exprs.append(pl.col("transport_fin_flag").eq(True).sum().alias("tcp_fin"))
+    if _has(lf, "tunnel"):
+        stats_exprs.append(
+            (_utf8("tunnel").str.count_matches("type='") > 1)
+            .fill_null(False)
+            .sum()
+            .alias("tunnel_multi")
+        )
     stats = lf.select(stats_exprs).collect()
     row = stats.row(0, named=True)
     total = int(row["packet_count"])
@@ -406,27 +561,42 @@ def _preset_summarize(lf: pl.LazyFrame, args: Mapping[str, Any]) -> PresetResult
                 _append_row(
                     sections, keys, values, "pps", None, str(total / duration_s)
                 )
-    if "bytes" in row and row["bytes"] is not None:
-        _append_row(sections, keys, values, "bytes", None, str(row["bytes"]))
-    if "ip_src_n" in row and row["ip_src_n"] is not None:
-        _append_row(sections, keys, values, "ip_src_n", None, str(row["ip_src_n"]))
-    if "ip_dst_n" in row and row["ip_dst_n"] is not None:
-        _append_row(sections, keys, values, "ip_dst_n", None, str(row["ip_dst_n"]))
+    for name in (
+        "bytes",
+        "ip_src_n",
+        "ip_dst_n",
+        "ip_frag",
+        "empty_transport",
+        "esp_spi",
+        "e2e_sni",
+        "vlan",
+        "mpls",
+        "tcp_syn",
+        "tcp_synack",
+        "tcp_rst",
+        "tcp_fin",
+        "tunnel_multi",
+    ):
+        if name in row and row[name] is not None:
+            _append_row(sections, keys, values, name, None, str(int(row[name])))
     truncated = False
-    for col in ("transport_type", "app_type", "tunnel", "ip_src", "ip_dst"):
+    for col in (
+        "transport_type",
+        "app_type",
+        "encapsulation",
+        "ip_version",
+        "ip_dscp",
+    ):
         if not _has(lf, col):
             continue
-        mix, mix_trunc = _limit_groups(
-            lf.group_by(col).len().sort("len", descending=True), n
+        truncated = _append_mix(sections, keys, values, lf, col, n) or truncated
+    if _has(lf, "tunnel"):
+        typed = lf.with_columns(_tunnel_type_expr())
+        truncated = (
+            _append_mix(sections, keys, values, typed, "tunnel_type", n) or truncated
         )
-        truncated = truncated or mix_trunc
-        for mix_row in mix.iter_rows(named=True):
-            key = None if mix_row[col] is None else str(mix_row[col])
-            _append_row(sections, keys, values, col, key, str(mix_row["len"]))
-    return (
-        pl.DataFrame({"section": sections, "key": keys, "value": values}),
-        truncated,
-    )
+    truncated = _append_service_mix(sections, keys, values, lf, n) or truncated
+    return _section_frame(sections, keys, values), truncated
 
 
 def _preset_list_flows(lf: pl.LazyFrame, args: Mapping[str, Any]) -> PresetResult:
@@ -552,6 +722,126 @@ def _preset_tcp_setup(lf: pl.LazyFrame, args: Mapping[str, Any]) -> PresetResult
     if expr is not None:
         filtered = filtered.filter(expr)
     return _limit_groups(_select_existing(filtered, FILTER_COLUMNS), row_limit)
+
+
+def _four_tuple_key() -> pl.Expr:
+    return pl.concat_str(
+        [
+            _utf8("ip_src"),
+            pl.lit(":"),
+            pl.col("transport_src_port").cast(pl.Utf8),
+            pl.lit(">"),
+            _utf8("ip_dst"),
+            pl.lit(":"),
+            pl.col("transport_dst_port").cast(pl.Utf8),
+        ]
+    )
+
+
+def _preset_tcp_anomalies(lf: pl.LazyFrame, args: Mapping[str, Any]) -> PresetResult:
+    _require(
+        lf,
+        "transport_type",
+        "ip_src",
+        "ip_dst",
+        "transport_src_port",
+        "transport_dst_port",
+        "transport_syn_flag",
+        "transport_ack_flag",
+        "transport_rst_flag",
+        "transport_fin_flag",
+    )
+    n = clamp_group_limit(_args_int(args, "group_limit"))
+    tcp = lf.filter(_utf8("transport_type") == "TCP")
+    syn = pl.col("transport_syn_flag").eq(True)
+    ack = pl.col("transport_ack_flag").eq(True)
+    flags = tcp.select(
+        syn.sum().alias("syn"),
+        (syn & ack).sum().alias("synack"),
+        pl.col("transport_rst_flag").eq(True).sum().alias("rst"),
+        pl.col("transport_fin_flag").eq(True).sum().alias("fin"),
+    ).collect()
+    flag_row = flags.row(0, named=True)
+    sections: list[str] = []
+    keys: list[Optional[str]] = []
+    values: list[str] = []
+    for name in ("syn", "synack", "rst", "fin"):
+        _append_row(sections, keys, values, name, None, str(int(flag_row[name])))
+    truncated = False
+    syn_only = tcp.filter(syn & ~ack)
+    synack_rev = (
+        tcp.filter(syn & ack)
+        .select(
+            _utf8("ip_dst").alias("ip_src"),
+            _utf8("ip_src").alias("ip_dst"),
+            pl.col("transport_dst_port").alias("transport_src_port"),
+            pl.col("transport_src_port").alias("transport_dst_port"),
+        )
+        .unique()
+    )
+    unmatched = (
+        syn_only.group_by(
+            [
+                _utf8("ip_src").alias("ip_src"),
+                _utf8("ip_dst").alias("ip_dst"),
+                "transport_src_port",
+                "transport_dst_port",
+            ]
+        )
+        .len()
+        .join(
+            synack_rev,
+            on=["ip_src", "ip_dst", "transport_src_port", "transport_dst_port"],
+            how="anti",
+        )
+        .sort("len", descending=True)
+        .with_columns(_four_tuple_key().alias("flow"))
+    )
+    unmatched_df, unmatched_trunc = _limit_groups(unmatched, n)
+    truncated = truncated or unmatched_trunc
+    for mix_row in unmatched_df.iter_rows(named=True):
+        _append_row(
+            sections,
+            keys,
+            values,
+            "unmatched_syn",
+            str(mix_row["flow"]),
+            str(mix_row["len"]),
+        )
+    if _has(lf, "transport_seq") and _has(lf, "transport_data_len"):
+        dups = (
+            tcp.filter(pl.col("transport_data_len") > 0)
+            .group_by(
+                [
+                    _utf8("ip_src").alias("ip_src"),
+                    _utf8("ip_dst").alias("ip_dst"),
+                    "transport_src_port",
+                    "transport_dst_port",
+                    "transport_seq",
+                    "transport_data_len",
+                ]
+            )
+            .len()
+            .filter(pl.col("len") > 1)
+            .sort("len", descending=True)
+            .with_columns(_four_tuple_key().alias("flow"))
+        )
+        extra = dups.select((pl.col("len") - 1).sum().alias("extra")).collect()
+        extra_n = extra["extra"][0]
+        _append_row(
+            sections,
+            keys,
+            values,
+            "dup_seq_extra_packets",
+            None,
+            str(0 if extra_n is None else int(extra_n)),
+        )
+        dup_df, dup_trunc = _limit_groups(dups, n)
+        truncated = truncated or dup_trunc
+        for mix_row in dup_df.iter_rows(named=True):
+            key = f"{mix_row['flow']}#{mix_row['transport_seq']}"
+            _append_row(sections, keys, values, "dup_seq", key, str(mix_row["len"]))
+    return _section_frame(sections, keys, values), truncated
 
 
 def _preset_quic_initials(lf: pl.LazyFrame, args: Mapping[str, Any]) -> PresetResult:
@@ -798,6 +1088,7 @@ _PRESET_FNS: dict[str, Callable[[pl.LazyFrame, Mapping[str, Any]], PresetResult]
     "sni_table": _preset_sni_table,
     "filter_packets": _preset_filter_packets,
     "tcp_setup": _preset_tcp_setup,
+    "tcp_anomalies": _preset_tcp_anomalies,
     "app_messages": _preset_app_messages,
     "quic_initials": _preset_quic_initials,
     "endpoints": _preset_endpoints,

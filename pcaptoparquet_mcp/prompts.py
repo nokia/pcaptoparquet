@@ -72,3 +72,13 @@ conversations type=tcp is the 4-tuple without CID.
 run(capture=..., preset="conversations")
 # or: run(capture=..., preset="endpoints")
 """
+
+DESCRIBE_CAPTURE = """\
+Call list_captures once. Then run preset summarize_capture, then endpoints
+or conversations (not both). Optional: tcp_anomalies for unmatched SYN and
+duplicate TCP seq. Do not plan unique() of all IPs. ip_* is inner after
+GTP-U unwrap. Empty app_type is not “no application”; use service port rows.
+udp/2152 is leftover outer GTP-U; tunneled GTP-U is tunnel_type=GTP-U.
+
+run(capture=..., preset="summarize_capture")
+"""

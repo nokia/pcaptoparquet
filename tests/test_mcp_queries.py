@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -363,8 +364,112 @@ def test_preset_names() -> None:
     assert "endpoints" in PRESETS
     assert "conversations" in PRESETS
     assert "io_stat" in PRESETS
+    assert "tcp_anomalies" in PRESETS
     assert "ports" not in PRESETS
     assert "app_requests" not in PRESETS
+
+
+def _section_pairs(payload: dict[str, Any], section: str) -> list[tuple[Any, Any]]:
+    si = payload["columns"].index("section")
+    ki = payload["columns"].index("key")
+    vi = payload["columns"].index("value")
+    return [(row[ki], row[vi]) for row in payload["data"] if row[si] == section]
+
+
+def test_summarize_and_tcp_anomalies_describe_shape() -> None:
+    gtp = (
+        "E2ETunnelList(E2ETunnel(type='GTP-U', id=1, src='10.9.9.1', "
+        "dst='10.9.9.2', len=64, pkt_id=1, pkt_ttl=64, dscp=0))"
+    )
+    times = [_utc(2024, 1, 1, 0) + timedelta(seconds=i) for i in range(8)]
+    lf = pl.DataFrame(
+        {
+            "num": list(range(8)),
+            "utc_date_time": times,
+            "ip_src": [
+                "10.0.0.9",
+                "10.8.0.1",
+                "10.0.0.1",
+                "10.0.0.2",
+                "10.0.0.1",
+                "10.0.0.1",
+                "10.0.0.1",
+                "10.7.0.1",
+            ],
+            "ip_dst": [
+                "8.8.8.8",
+                "10.8.0.2",
+                "10.0.0.2",
+                "10.0.0.1",
+                "10.0.0.2",
+                "10.0.0.2",
+                "10.0.0.2",
+                "10.7.0.2",
+            ],
+            "transport_type": [
+                "TCP",
+                "UDP",
+                "TCP",
+                "TCP",
+                "TCP",
+                "TCP",
+                "TCP",
+                "UDP",
+            ],
+            "transport_src_port": [55555, 2152, 40000, 443, 40000, 40000, 40000, 2123],
+            "transport_dst_port": [8080, 2152, 443, 40000, 443, 443, 443, 9999],
+            "transport_syn_flag": [
+                True,
+                None,
+                True,
+                True,
+                False,
+                False,
+                False,
+                None,
+            ],
+            "transport_ack_flag": [
+                False,
+                None,
+                False,
+                True,
+                True,
+                True,
+                True,
+                None,
+            ],
+            "transport_rst_flag": [False] * 8,
+            "transport_fin_flag": [False] * 8,
+            "transport_seq": [1, None, 2, 3, 99, 99, 99, None],
+            "transport_data_len": [0, 40, 0, 0, 10, 10, 10, 20],
+            "tunnel": [None, gtp, "[]", "[]", "[]", "[]", "[]", "GTP-U"],
+            "ip_len": [60] * 8,
+            "esp_spi": [None, None, None, None, None, None, None, None],
+            "ip_frag": [False] * 8,
+            "encapsulation": ["Ethernet"] * 8,
+            "eth_vlan_tags": ["[]"] * 8,
+            "eth_mpls_labels": ["[]"] * 8,
+            "e2e_sni": [""] * 8,
+        }
+    ).lazy()
+    mix = _assert_ok(execute(lf, preset="summarize_capture"))
+    assert mix["truncated"] is False
+    encoded = json.dumps(mix, separators=(",", ":"))
+    assert len(encoded.encode("utf-8")) < 32768
+    keys = [str(k) for k, _v in _section_pairs(mix, "tunnel_type")]
+    assert "GTP-U" in keys
+    assert "none" in keys
+    assert not any("E2ETunnelList" in str(cell) for row in mix["data"] for cell in row)
+    services = dict(_section_pairs(mix, "service"))
+    assert int(services["udp/2123"]) == 1
+    assert int(services["udp/2152"]) == 1
+    assert "ip_src" not in [row[0] for row in mix["data"]]
+    anomalies = _assert_ok(execute(lf, preset="tcp_anomalies"))
+    unmatched = dict(_section_pairs(anomalies, "unmatched_syn"))
+    assert "10.0.0.9:55555>8.8.8.8:8080" in unmatched
+    assert "10.0.0.1:40000>10.0.0.2:443" not in unmatched
+    extra = dict(_section_pairs(anomalies, "dup_seq_extra_packets"))
+    assert int(next(iter(extra.values()))) == 2
 
 
 def test_empty_list_captures(tmp_path: Path) -> None:

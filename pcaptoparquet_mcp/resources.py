@@ -19,6 +19,12 @@ pcaptoparquet Parquet glossary
 - transport_spin: QUIC short-header spin bit.
 - e2e_sni: SNI from TLS ClientHello and IETF QUIC v1 Initial CRYPTO frames only.
 - tunnel: GTP-U and VxLAN when present. L2TPv2, L2TPv3, and GRE are experimental.
+  ip_src/ip_dst/ports are the inner packet after GTP-U unwrap; outer addresses
+  stay in the tunnel string. summarize_capture reports tunnel_type (GTP-U,
+  VxLAN, none, …), not the raw E2ETunnelList text, and no per-IP mix.
+- Empty app_type does not mean no application. summarize_capture service rows
+  are well-known ports (udp/2123, tcp/80, …). udp/2152 is leftover outer GTP-U
+  still on 2152; tunneled GTP-U is tunnel_type=GTP-U.
 - run() executes one Polars JSON plan (or a named preset) on one relative
   capture (file or subdirectory). Extra parquet tags (filename, path, and up
   to 16 others) are queryable. There is no whole-tree union. Prefer one run
@@ -26,7 +32,7 @@ pcaptoparquet Parquet glossary
   5-row sample unless you pass head (cap 200). Aggregates and distinct lists
   return the full small table (cap 5000, 32KiB). Success includes frame_id;
   pass it on the next run to continue without rescanning an aggregate.
-  Presets include endpoints, conversations, and io_stat (tshark -z analogues).
+  Presets include endpoints, conversations, io_stat, and tcp_anomalies.
   When a bytes column is present it is sum(ip_len), not frame wire bytes.
 """
 

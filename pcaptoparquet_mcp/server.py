@@ -127,10 +127,10 @@ def build_server(catalog: ParquetCatalog) -> Any:
         Ops: filter, with_columns, select, unique, sort, group_by, join_packets,
         join, from_frame, head. Arithmetic add/sub/mul/div; total_ms. Named plan
         frames (max 4) then join. Presets: summarize_capture, list_flows, sni_table,
-        filter_packets, tcp_setup, app_messages, quic_initials, endpoints,
-        conversations, io_stat. Prefer one run after list_captures. Extra tags
-        (filename, path, …) are kept up to 16. Packet-shaped data is a 5-row
-        preview (head to see more, cap 200); aggregates cap 5000; JSON 32KiB;
+        filter_packets, tcp_setup, tcp_anomalies, app_messages, quic_initials,
+        endpoints, conversations, io_stat. Prefer one run after list_captures.
+        Extra tags (filename, path, …) are kept up to 16. Packet-shaped data is a
+        5-row preview (head to see more, cap 200); aggregates cap 5000; JSON 32KiB;
         30s collect timeout. frame_id continues a stored result of this capture.
         """
         payload = run_capture(
@@ -179,6 +179,11 @@ def build_server(catalog: ParquetCatalog) -> Any:
     def who_talks() -> str:
         """One run() preset for endpoints or conversations."""
         return prompts.WHO_TALKS
+
+    @mcp.prompt()
+    def describe_capture() -> str:
+        """list_captures then summarize, talkers, optional tcp_anomalies."""
+        return prompts.DESCRIBE_CAPTURE
 
     return mcp
 
